@@ -876,3 +876,134 @@ test('does not capture undo intended for controls outside the embedded editor', 
   await page.keyboard.press('Control+z');
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Original']);
 });
+
+async function beginPointerFolderDrag(page: Page, sourceName: string) {
+  const source = folderRow(page, sourceName);
+  await source.scrollIntoViewIfNeeded();
+  const box = (await source.boundingBox())!;
+  await page.mouse.move(box.x + box.width - 18, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 32, box.y + box.height / 2, { steps: 4 });
+}
+
+async function hoverAfterAtDepth(page: Page, targetName: string, depth: number) {
+  const tree = (await page.locator('.fs-tree').boundingBox())!;
+  const target = (await folderRow(page, targetName).boundingBox())!;
+  const x = tree.x + 12 + depth * 22 + 5;
+  const y = target.y + target.height - 2;
+  await page.mouse.move(x, y, { steps: 12 });
+  // A second pointer movement ensures Chromium dispatches a dragover at the chosen boundary.
+  await page.mouse.move(x + 1, y);
+}
+
+async function hoverTreeWhitespaceAtDepth(page: Page, depth: number, useTail: boolean) {
+  const tree = (await page.locator('.fs-tree').boundingBox())!;
+  const rows = page.locator('.fs-tree-row');
+  const last = (await rows.last().boundingBox())!;
+  const target = useTail ? (await page.locator('.fs-tree-tail').boundingBox())! : tree;
+  const x = tree.x + 12 + depth * 22 + 5;
+  const y = useTail ? target.y + target.height / 2 : Math.min(tree.y + tree.height - 12, last.y + last.height + 40);
+  expect(y).toBeGreaterThan(last.y + last.height);
+  await page.mouse.move(x, y, { steps: 12 });
+  await page.mouse.move(x + 1, y);
+}
+
+test('chooses leaf, parent, and root-child insertion levels by moving a real drag horizontally', async ({ page }, testInfo) => {
+  const original = 'Project\n  Source\n  A\n    B\n      C';
+  await importText(page, original);
+  await beginPointerFolderDrag(page, 'Source');
+  const positions: number[] = [];
+  for (const [depth, name] of [[3, 'leaf'], [2, 'parent'], [1, 'root-child']] as const) {
+    await hoverAfterAtDepth(page, 'C', depth);
+    const line = page.locator('.fs-drop-line.is-after');
+    await expect(line).toBeVisible();
+    positions.push((await line.boundingBox())!.x);
+    await expect(page.locator('.fs-tree-help')).toContainText(`Release to insert after ${{ 3: 'C', 2: 'B', 1: 'A' }[depth]}`);
+    await page.screenshot({ path: testInfo.outputPath(`drag-outdent-${name}.png`), fullPage: true });
+  }
+  expect(positions[0] - positions[1]).toBeCloseTo(22, 0);
+  expect(positions[1] - positions[2]).toBeCloseTo(22, 0);
+  // The root itself is never a sibling destination, even when the pointer moves farther left.
+  await hoverAfterAtDepth(page, 'C', 0);
+  expect((await page.locator('.fs-drop-line.is-after').boundingBox())!.x).toBeCloseTo(positions[2], 0);
+  await hoverAfterAtDepth(page, 'C', 3);
+  await page.mouse.up();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/A/B/Source');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source']);
+  for (const [depth, path] of [[2, 'Project/A/Source'], [1, 'Project/Source']] as const) {
+    await importText(page, original);
+    await beginPointerFolderDrag(page, 'Source');
+    await hoverAfterAtDepth(page, 'C', depth);
+    await page.mouse.up();
+    await expect(page.locator('.fs-selected-path')).toHaveText(path);
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source']);
+  }
+});
+
+test('clamps horizontal outdenting when the hovered child is not the end of its parent subtree', async ({ page }) => {
+  await importText(page, 'Project\n  Source\n  A\n    B\n      C\n      D');
+  await beginPointerFolderDrag(page, 'Source');
+  await hoverAfterAtDepth(page, 'C', 3);
+  const line = page.locator('.fs-drop-line.is-after');
+  await expect(line).toBeVisible();
+  const leafLeft = (await line.boundingBox())!.x;
+  await hoverAfterAtDepth(page, 'C', 1);
+  await expect(line).toBeVisible();
+  expect((await line.boundingBox())!.x).toBeCloseTo(leafLeft, 0);
+  await page.mouse.up();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/A/B/Source');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source', 'D']);
+});
+
+test('outdents after a collapsed last ancestor from tree whitespace and tail, with undo and saved exports', async ({ page }) => {
+  const original = 'Project\n  Source\n  A\n    B\n      C';
+  for (const useTail of [false, true]) {
+    await importText(page, original);
+    await page.getByRole('button', { name: 'Collapse B', exact: true }).click();
+    await expect(folderRow(page, 'C')).toHaveCount(0);
+    await beginPointerFolderDrag(page, 'Source');
+    await hoverTreeWhitespaceAtDepth(page, 1, useTail);
+    await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
+    await page.mouse.up();
+    await expect(page.locator('.fs-selected-path')).toHaveText('Project/Source');
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source']);
+    await expect(page.locator('.fs-folder-select[title="Source"]')).toBeFocused();
+    await page.keyboard.press('Control+z');
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Source', 'A', 'B', 'C']);
+    await page.keyboard.press('Control+Shift+z');
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source']);
+  }
+  await page.reload();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source']);
+  const zip = await downloadFormat(page, 'Folder ZIP', 'zip');
+  expect(Object.keys(unzipSync(zip))).toEqual(['Project/', 'Project/A/', 'Project/A/B/', 'Project/A/B/C/', 'Project/Source/']);
+});
+
+test('allows a subtree to outdent past its visible descendant without creating a cycle', async ({ page }) => {
+  await importText(page, 'Project\n  A\n    B\n      Source\n        Leaf');
+  await beginPointerFolderDrag(page, 'Source');
+  await hoverAfterAtDepth(page, 'Leaf', 4);
+  await expect(page.locator('.fs-drop-line')).toHaveCount(0);
+  await hoverAfterAtDepth(page, 'Leaf', 1);
+  await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Source');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'Source', 'Leaf']);
+  await selectFolder(page, 'Leaf');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Source/Leaf');
+});
+
+
+test('outdents the last folder by sliding left over its own bottom edge', async ({ page }) => {
+  await importText(page, 'Project\n  A\n    B\n      Leaf');
+  await beginPointerFolderDrag(page, 'Leaf');
+  await hoverAfterAtDepth(page, 'Leaf', 1);
+  await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
+  await expect(page.locator('.fs-tree-help')).toContainText('Release to insert after A');
+  await page.mouse.up();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Leaf');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'Leaf']);
+  await page.keyboard.press('Control+z');
+  await selectFolder(page, 'Leaf');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/A/B/Leaf');
+});

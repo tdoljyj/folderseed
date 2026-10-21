@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDocument, DirectoryError, flatten, LIMITS, parseText, serializeJSON, type DirectoryDocument } from '../src/core';
-import { dropPlacement, moveByDrop, type DropPlacement } from '../src/ui/dragDrop';
+import { dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from '../src/ui/dragDrop';
+import { historyReducer, type HistoryState } from '../src/ui/history';
 
 function fixture(): DirectoryDocument {
   return parseText('Root\n  A\n    A1\n    A2\n  B\n    B1\n    B2\n  C\n    C1\n  D', 'plain');
@@ -227,5 +228,165 @@ describe('drag safety and atomic failures', () => {
     Object.freeze(document);
     expect(children(moveByDrop(document, id(document, 'A'), id(document, 'D'), 'after'))).toEqual(['B', 'C', 'D', 'A']);
     expect(children(document)).toEqual(['A', 'B', 'C', 'D']);
+  });
+});
+
+describe('horizontal insertion depth', () => {
+  it.each([
+    [-200, 1], [0, 1], [12, 1], [34, 1], [39, 1], [45, 1], [55.999, 1],
+    [56, 2], [61, 2], [67, 2], [77.999, 2], [78, 3], [100, 4],
+  ])('maps x=%s to depth %s with the default insertion-line geometry', (x, expected) => {
+    expect(dropDepth(x, 0)).toBe(expected);
+    expect(dropDepth(x + 240, 240)).toBe(expected);
+    expect(dropDepth(x - 240, -240)).toBe(expected);
+  });
+
+  it('supports custom insets, fractional coordinates, and indent widths', () => {
+    expect(dropDepth(230, 200, 10, 10)).toBe(2);
+    expect(dropDepth(235, 200, 10, 10)).toBe(2);
+    expect(dropDepth(22.5, 10, 0, 5)).toBe(2);
+    expect(dropDepth(1e10, 0)).toBeGreaterThan(32);
+  });
+
+  it.each([
+    [NaN, 0, 12, 22], [Infinity, 0, 12, 22], [-Infinity, 0, 12, 22],
+    [34, NaN, 12, 22], [34, Infinity, 12, 22], [34, 0, NaN, 22],
+    [34, 0, Infinity, 22], [34, 0, -1, 22], [34, 0, 12, NaN],
+    [34, 0, 12, Infinity], [34, 0, 12, 0], [34, 0, 12, -1],
+  ])('does not request an outdent for invalid geometry %j', (x, left, inset, indent) => {
+    expect(dropDepth(x, left, inset, indent)).toBe(Infinity);
+  });
+});
+
+function outdentFixture(): DirectoryDocument {
+  return parseText('Root\n  Before\n  Parent\n    First\n      First leaf\n    Last\n      Earlier\n      Tail\n        Deep leaf\n  After', 'plain');
+}
+
+describe('after-subtree horizontal target resolution', () => {
+  it.each([
+    [4, 'Deep leaf'], [3, 'Tail'], [2, 'Last'], [1, 'Parent'],
+    [0, 'Parent'], [-20, 'Parent'], [20, 'Deep leaf'],
+  ])('resolves a complete last-child chain at requested depth %s to %s', (depth, expected) => {
+    const document = outdentFixture();
+    const before = serializeJSON(document);
+    expect(resolveDropTarget(document, id(document, 'Deep leaf'), 'after', depth)).toBe(id(document, expected));
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it.each(['before', 'inside'] as const)('never adjusts %s placement horizontally', placement => {
+    const document = outdentFixture();
+    for (const depth of [-1, 0, 1, 2, 3, 20, NaN, Infinity]) {
+      expect(resolveDropTarget(document, id(document, 'Deep leaf'), placement, depth)).toBe(id(document, 'Deep leaf'));
+    }
+  });
+
+  it('stops immediately when the target is not its parent\'s last child', () => {
+    const document = outdentFixture();
+    expect(resolveDropTarget(document, id(document, 'Earlier'), 'after', 1)).toBe(id(document, 'Earlier'));
+    expect(resolveDropTarget(document, id(document, 'First'), 'after', 1)).toBe(id(document, 'First'));
+  });
+
+  it('can climb part of a chain but stops at the first non-last ancestor', () => {
+    const document = outdentFixture();
+    expect(resolveDropTarget(document, id(document, 'First leaf'), 'after', 1)).toBe(id(document, 'First'));
+  });
+
+  it('treats an after-target boundary as after the full subtree, independent of collapse state', () => {
+    const document = outdentFixture();
+    expect(resolveDropTarget(document, id(document, 'Tail'), 'after', 1)).toBe(id(document, 'Parent'));
+    expect(resolveDropTarget(document, id(document, 'Last'), 'after', 1)).toBe(id(document, 'Parent'));
+    expect(flatten(document).find(row => row.node.name === 'Tail')!.node.children).toHaveLength(1);
+  });
+
+  it('never climbs to the root, even from its last child', () => {
+    const document = outdentFixture();
+    expect(resolveDropTarget(document, id(document, 'After'), 'after', 0)).toBe(id(document, 'After'));
+    for (const placement of ['before', 'inside', 'after'] as const) {
+      expect(resolveDropTarget(document, document.root.id, placement, 1)).toBe(document.root.id);
+    }
+    expectCode(() => moveByDrop(document, id(document, 'Before'), resolveDropTarget(document, document.root.id, 'after', 1), 'after'), 'ROOT_OPERATION');
+  });
+
+  it.each([NaN, Infinity, -Infinity])('leaves the target unchanged for invalid depth %s', depth => {
+    const document = outdentFixture();
+    expect(resolveDropTarget(document, id(document, 'Deep leaf'), 'after', depth)).toBe(id(document, 'Deep leaf'));
+  });
+
+  it('uses the containing indentation band for fractional depth', () => {
+    const document = outdentFixture();
+    expect(resolveDropTarget(document, id(document, 'Deep leaf'), 'after', 1.49)).toBe(id(document, 'Parent'));
+    expect(resolveDropTarget(document, id(document, 'Deep leaf'), 'after', 1.99)).toBe(id(document, 'Parent'));
+    expect(resolveDropTarget(document, id(document, 'Deep leaf'), 'after', 2)).toBe(id(document, 'Last'));
+  });
+
+  it('validates the model, target, and placement without mutating the input', () => {
+    const document = outdentFixture();
+    expectCode(() => resolveDropTarget(document, 'missing', 'before', 1), 'NOT_FOUND');
+    expectCode(() => resolveDropTarget(document, document.root.id, 'middle' as DropPlacement, 1), 'INVALID_DROP');
+    document.root.name = '../unsafe';
+    expectCode(() => resolveDropTarget(document, document.root.id, 'inside', 1), 'UNSAFE_NAME');
+  });
+});
+
+describe('resolved drop hierarchy and history', () => {
+  it.each([
+    [1, 'Root', 'Root/Before'],
+    [2, 'Parent', 'Root/Parent/Before'],
+    [3, 'Last', 'Root/Parent/Last/Before'],
+  ] as const)('moves a source to requested depth %s using the resolved target', (depth, expectedParent, expectedPath) => {
+    const document = outdentFixture();
+    const target = resolveDropTarget(document, id(document, 'Deep leaf'), 'after', depth);
+    const next = moveByDrop(document, id(document, 'Before'), target, 'after');
+    expect(flatten(next).find(row => row.node.name === 'Before')!.depth).toBe(depth);
+    expect(flatten(next).find(row => row.node.name === 'Before')!.path).toBe(expectedPath);
+    expect(children(next, expectedParent).at(-1)).toBe(depth === 1 ? 'After' : 'Before');
+    expect(children(next, 'Tail')).toEqual(['Deep leaf']);
+    expect(children(document)).toEqual(['Before', 'Parent', 'After']);
+  });
+
+  it('outdents a nested source after its own ancestor and preserves its subtree', () => {
+    const document = outdentFixture();
+    const target = resolveDropTarget(document, id(document, 'Deep leaf'), 'after', 1);
+    const next = moveByDrop(document, id(document, 'Tail'), target, 'after');
+    expect(children(next)).toEqual(['Before', 'Parent', 'Tail', 'After']);
+    expect(children(next, 'Last')).toEqual(['Earlier']);
+    expect(children(next, 'Tail')).toEqual(['Deep leaf']);
+  });
+
+  it('preserves an existing position as the original document identity', () => {
+    const document = outdentFixture();
+    const target = resolveDropTarget(document, id(document, 'Deep leaf'), 'after', 1);
+    expect(moveByDrop(document, id(document, 'After'), target, 'after')).toBe(document);
+    expect(moveByDrop(document, id(document, 'Parent'), target, 'after')).toBe(document);
+  });
+
+  it('does not bypass cycle protection when the boundary cannot climb far enough', () => {
+    const document = outdentFixture();
+    const before = serializeJSON(document);
+    const target = resolveDropTarget(document, id(document, 'First leaf'), 'after', 1);
+    expectCode(() => moveByDrop(document, id(document, 'Parent'), target, 'after'), 'CYCLE');
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('preserves duplicate-name checks after changing the insertion parent', () => {
+    const document = parseText('Root\n  Shared\n  Parent\n    shared\n    Last\n      Tail', 'plain');
+    const before = serializeJSON(document);
+    const target = resolveDropTarget(document, id(document, 'Tail'), 'after', 2);
+    expectCode(() => moveByDrop(document, id(document, 'Shared'), target, 'after'), 'DUPLICATE_NAME');
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('undoes and redoes a resolved move as one operation while no-op drops need no commit', () => {
+    const document = outdentFixture();
+    const target = resolveDropTarget(document, id(document, 'Deep leaf'), 'after', 1);
+    const next = moveByDrop(document, id(document, 'Tail'), target, 'after');
+    const initial: HistoryState = { past: [], present: document, future: [] };
+    const committed = historyReducer(initial, { type: 'commit', document: next });
+    expect(committed.past).toEqual([document]);
+    const undone = historyReducer(committed, { type: 'undo' });
+    expect(undone.present).toBe(document);
+    expect(historyReducer(undone, { type: 'redo' }).present).toBe(next);
+    const unchanged = moveByDrop(next, id(next, 'Tail'), id(next, 'Parent'), 'after');
+    expect(unchanged).toBe(next);
   });
 });

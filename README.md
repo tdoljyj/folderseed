@@ -169,7 +169,7 @@ export function ProjectFolders() {
 
 `initialDocument` initializes the editor; it is not a continuously controlled value. `onChange` receives the initialized document and committed changes, not uncommitted text drafts. Set `storageKey={false}` when the host owns persistence, or pass a unique string to isolate drafts between projects. The standalone app uses `folderseed:draft:v1`.
 
-See [the embedding example](examples/embedding.tsx) and [architecture notes](docs/architecture.md) for the data model, integration boundaries, and export helper.
+See [the embedding example](examples/embedding.tsx) and [architecture notes](docs/architecture.md) for the data model, integration boundaries, and export helper. With `npm run dev` running, open `/examples/index.html` on the local dev server for a working host-owned editor example. This example is a development route, not a separate deployed service.
 
 ## Privacy and safety
 
@@ -178,7 +178,7 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 - Folder names are treated as text, not HTML or commands. No scripts are generated or run.
 - Unsafe names, path traversal, control characters, operating-system reserved names, and duplicate sibling names are rejected.
 - ZIP entries are folder-only, use validated paths, and preserve empty folders.
-- Local drafts use browser storage. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
+- Local drafts use browser storage. An unreadable saved draft is preserved under a timestamped recovery key before the active draft is replaced; if that backup cannot be saved, autosave pauses rather than overwriting the original. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
 - After the app has loaded, editing and exports do not need a network connection. This is not an installable offline/PWA app; a first load or later reload may still require access to its host.
 
 ## Current limits

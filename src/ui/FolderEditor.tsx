@@ -23,19 +23,20 @@ const formats: { id: ExportFormat; title: string; description: string; icon: str
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 
 function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false) {
-  if (initialDocument) return { document: validateDocument(initialDocument), draft: '', warning: '' };
+  if (initialDocument) return { document: validateDocument(initialDocument), draft: '', warning: '', recoveryRaw: null as string | null, indent: 'auto' as ParseIndent };
   if (storageKey && typeof window !== 'undefined') {
+    let raw: string | null = null;
     try {
-      const raw = localStorage.getItem(storageKey);
+      raw = localStorage.getItem(storageKey);
       if (raw) {
         if (raw.length > LIMITS.textBytes * 2) throw new Error('Draft too large');
         const stored = JSON.parse(raw);
         const document = validateDocument(stored.document);
-        return { document, draft: typeof stored.draft === 'string' && stored.draft.length <= LIMITS.textBytes ? stored.draft : '', warning: '' };
+        return { document, draft: typeof stored.draft === 'string' && stored.draft.length <= LIMITS.textBytes ? stored.draft : '', warning: '', recoveryRaw: null as string | null, indent: ([2, 4, 'tabs', 'auto'].includes(stored.indent) ? stored.indent : 'auto') as ParseIndent };
       }
-    } catch { return { document: makeTemplate(0), draft: '', warning: 'Your saved draft could not be loaded. A fresh example is open; import a JSON backup to recover.' }; }
+    } catch { return { document: makeTemplate(0), draft: '', warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw, indent: 'auto' as ParseIndent }; }
   }
-  return { document: makeTemplate(0), draft: '', warning: '' };
+  return { document: makeTemplate(0), draft: '', warning: '', recoveryRaw: null as string | null, indent: 'auto' as ParseIndent };
 }
 
 export function FolderEditor({ initialDocument, onChange, storageKey = 'folderseed:draft:v1' }: FolderEditorProps) {
@@ -45,9 +46,9 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const [selectedId, setSelectedId] = useState(doc.root.id);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'visual' | 'text'>(initial.draft ? 'text' : 'visual');
-  const [textDraft, setTextDraft] = useState(initial.draft || formatIndented(doc));
+  const [indent, setIndent] = useState<ParseIndent>(initial.indent);
+  const [textDraft, setTextDraft] = useState(initial.draft || formatIndented(doc, initial.indent === 'auto' ? 2 : initial.indent));
   const [textDirty, setTextDirty] = useState(!!initial.draft);
-  const [indent, setIndent] = useState<ParseIndent>('auto');
   const [format, setFormat] = useState<ExportFormat>('zip');
   const [previewMode, setPreviewMode] = useState<'folders' | 'text'>('folders');
   const [modal, setModal] = useState<Modal | null>(null);
@@ -60,6 +61,10 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const [exporting, setExporting] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragId = useRef<string | null>(null);
+  const onChangeRef = useRef(onChange);
+  const importTicket = useRef(0);
+  const contentRevision = useRef(0);
+  const recoveryBackedUp = useRef(initial.recoveryRaw === null);
   const fileInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
@@ -76,17 +81,25 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const previewRows = useMemo(() => flatten(previewDoc), [previewDoc]);
   const depth = Math.max(...previewRows.map(row => row.depth)) + 1;
 
-  useEffect(() => { onChange?.(doc); }, [doc, onChange]);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { onChangeRef.current?.(doc); }, [doc]);
   useEffect(() => {
     if (!rows.some(row => row.node.id === selectedId)) setSelectedId(doc.root.id);
   }, [doc, rows, selectedId]);
   useEffect(() => {
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ document: doc, draft: textDirty ? textDraft : '' }));
+      // Preserve unreadable data before replacing the active key. If backup fails, keep the original untouched.
+      if (!recoveryBackedUp.current && initial.recoveryRaw !== null) {
+        try {
+          localStorage.setItem(`${storageKey}:recovery:${new Date().toISOString()}`, initial.recoveryRaw);
+          recoveryBackedUp.current = true;
+        } catch { setSaveState('Autosave paused — unreadable draft preserved'); return; }
+      }
+      localStorage.setItem(storageKey, JSON.stringify({ document: doc, draft: textDirty ? textDraft : '', indent }));
       setSaveState('Saved on this device');
     } catch { setSaveState('Draft not saved — export JSON as a backup'); }
-  }, [doc, textDirty, textDraft, storageKey]);
+  }, [doc, textDirty, textDraft, storageKey, indent, initial.recoveryRaw]);
   useEffect(() => {
     if (!modal) return;
     dialog.current?.showModal();
@@ -101,13 +114,15 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
 
   function notify(message: string, error = false) { setNotice(message); setNoticeError(error); }
   function commit(next: DirectoryDocument, message: string) {
+    contentRevision.current++;
     dispatch({ type: 'commit', document: next });
-    setTextDraft(formatIndented(next)); setTextDirty(false); notify(message);
+    setTextDraft(formatIndented(next, indent === 'auto' ? 2 : indent)); setTextDirty(false); notify(message);
   }
   function historyStep(type: 'undo' | 'redo') {
     if (textDirty) return notify('Apply or discard your text draft before using history.', true);
     const next = historyReducer(history, { type });
-    dispatch({ type }); setTextDraft(formatIndented(next.present)); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
+    contentRevision.current++;
+    dispatch({ type }); setTextDraft(formatIndented(next.present, indent === 'auto' ? 2 : indent)); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
   }
   function openModal(next: Modal) {
     setModalError(''); setModal(next);
@@ -151,13 +166,17 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     catch (error) { notify(errorMessage(error), true); }
   }
   async function importFile(file: File) {
+    const ticket = ++importTicket.current;
+    const revision = contentRevision.current;
     try {
       if (textDirty) throw new Error('Apply or discard your text draft before importing.');
       if (file.size > LIMITS.textBytes) throw new Error('Please choose a text or JSON file smaller than 1 MB.');
       const text = await file.text();
+      if (ticket !== importTicket.current) return;
+      if (revision !== contentRevision.current) return notify('Import cancelled because your structure changed while the file was being read.', true);
       const next = file.name.toLowerCase().endsWith('.json') ? parseJSON(text) : parseIndented(text);
       commit(next, `Imported ${file.name}.`); setCollapsed(new Set()); setMode('visual');
-    } catch (error) { notify(errorMessage(error), true); }
+    } catch (error) { if (ticket === importTicket.current) notify(errorMessage(error), true); }
   }
   async function download() {
     if (textDirty || exporting) return;
@@ -205,17 +224,18 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     <main className="fs-main" id="workspace">
       <header className="fs-topbar"><span className="fs-breadcrumb">Workspace <Icon name="chevron" size={12}/> Folder builder</span><span className="fs-save-state"><span className={saveState.startsWith('Draft not') ? 'warning' : ''}/>{saveState}</span></header>
       <section className="fs-heading"><div><span className="fs-eyebrow">FROM A SMALL SEED, A CLEARER SPACE</span><h1>A little structure.<br className="fs-mobile-break"/> A fresh start.</h1><p>Shape your folders, make them yours, and take them anywhere.</p></div><button type="button" className="fs-button fs-import" disabled={textDirty} onClick={() => fileInput.current?.click()}><Icon name="upload"/>Import structure</button><input type="file" accept=".json,.txt,.md,.markdown,text/plain,application/json" ref={fileInput} hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file); }}/></section>
+      <div className="fs-mobile-templates"><span><Icon name="spark" size={15}/>Need a starting point?</span><select aria-label="Choose a template" value="" disabled={textDirty} onChange={event => { if (event.target.value !== '') openModal({ kind: 'template', index: Number(event.target.value) }); }}><option value="" disabled>Choose a template</option>{templates.map((template, index) => <option key={template.id} value={index}>{template.name}</option>)}</select></div>
       <div className="fs-workspace-grid">
         <section className="fs-panel fs-editor" aria-label="Folder editor">
           <div className="fs-panel-heading"><div><span className="fs-step">01</span><h2>Make it yours</h2></div><div className="fs-history"><button type="button" aria-label="Undo" title="Undo" disabled={!history.past.length || textDirty} onClick={() => historyStep('undo')}><Icon name="undo" size={17}/></button><button type="button" aria-label="Redo" title="Redo" disabled={!history.future.length || textDirty} onClick={() => historyStep('redo')}><Icon name="redo" size={17}/></button></div></div>
-          <div className="fs-editor-tabs" role="tablist" aria-label="Editing mode"><button type="button" role="tab" aria-selected={mode === 'visual'} aria-controls="visual-editor" id="visual-tab" onClick={() => { if (textDirty) notify('Apply or discard your text draft before switching to visual editing.', true); else setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button><button type="button" role="tab" aria-selected={mode === 'text'} aria-controls="text-editor" id="text-tab" onClick={() => { setMode('text'); if (!textDirty) setTextDraft(formatIndented(doc)); }}><Icon name="code" size={16}/>Text editor</button></div>
+          <div className="fs-editor-tabs" role="tablist" aria-label="Editing mode"><button type="button" role="tab" aria-selected={mode === 'visual'} aria-controls="visual-editor" id="visual-tab" onClick={() => { if (textDirty) notify('Apply or discard your text draft before switching to visual editing.', true); else setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button><button type="button" role="tab" aria-selected={mode === 'text'} aria-controls="text-editor" id="text-tab" onClick={() => { setMode('text'); if (!textDirty) setTextDraft(formatIndented(doc, indent === 'auto' ? 2 : indent)); }}><Icon name="code" size={16}/>Text editor</button></div>
           {mode === 'visual' ? <div id="visual-editor" role="tabpanel" aria-labelledby="visual-tab" className="fs-visual-area">
             <div className="fs-tree-help"><span>{rows.length} folders, a world of possibilities</span><span>Drag to nest</span></div>
             <ul className="fs-tree" aria-label="Folder list">{renderFolder(doc.root, 0)}</ul>
             {rows.length === 1 && <div className="fs-empty-hint"><Icon name="spark" size={23}/><p>Every good structure starts somewhere.<br/>Add your first folder below.</p></div>}
             <button type="button" className="fs-add-folder" onClick={() => openModal({ kind: 'add', id: selected.node.id })}><Icon name="plus" size={17}/>Add folder<span>inside {selected.node.name}</span></button>
             <div className="fs-selection-tools"><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><div className="fs-tool-buttons"><button type="button" onClick={() => openModal({ kind: 'rename', id: selected.node.id })}><Icon name="edit" size={15}/>Rename</button><button type="button" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={15}/>Move</button><button type="button" aria-label="Move up" title="Move up" disabled={!parent || siblingIndex <= 0} onClick={() => reorder(-1)}><Icon name="up" size={15}/></button><button type="button" aria-label="Move down" title="Move down" disabled={!parent || siblingIndex >= parent.children.length - 1} onClick={() => reorder(1)}><Icon name="down" size={15}/></button><button type="button" className="fs-danger-icon" aria-label="Delete folder" title="Delete folder" disabled={!parent} onClick={() => openModal({ kind: 'delete', id: selected.node.id })}><Icon name="trash" size={15}/></button></div></div>
-          </div> : <div id="text-editor" role="tabpanel" aria-labelledby="text-tab" className="fs-text-area"><div className="fs-text-options"><label htmlFor="indent">Indentation</label><select id="indent" value={indent} onChange={event => setIndent(event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent)}><option value="auto">Auto-detect</option><option value="2">2 spaces</option><option value="4">4 spaces</option><option value="tabs">Tabs</option></select></div><textarea aria-label="Folder structure text" spellCheck={false} value={textDraft} onChange={event => { setTextDraft(event.target.value); setTextDirty(true); }} onKeyDown={event => { if (event.key === 'Tab') { event.preventDefault(); const input = event.currentTarget; const position = input.selectionStart; const insertion = indent === 'tabs' ? '\t' : indent === 4 ? '    ' : '  '; const next = textDraft.slice(0, position) + insertion + textDraft.slice(input.selectionEnd); setTextDraft(next); setTextDirty(true); requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; }); } }}/><p className="fs-text-guide">One folder per line. Indent children with 2 spaces, 4 spaces, or tabs. A single root keeps everything together.</p>{parsed.error ? <div className="fs-inline-error" role="alert">{parsed.error}</div> : textDirty && <div className="fs-text-valid"><Icon name="check" size={14}/>Valid structure · preview updated</div>}<div className="fs-text-actions"><button type="button" className="fs-button" disabled={!textDirty} onClick={() => { setTextDraft(formatIndented(doc)); setTextDirty(false); notify('Text draft discarded.'); }}>Discard draft</button><button type="button" className="fs-button fs-primary" disabled={!textDirty || !!parsed.error} onClick={applyText}>Apply changes</button></div></div>}
+          </div> : <div id="text-editor" role="tabpanel" aria-labelledby="text-tab" className="fs-text-area"><div className="fs-text-options"><label htmlFor="indent">Indentation</label><select id="indent" value={indent} onChange={event => { const nextIndent: ParseIndent = event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent; setIndent(nextIndent); if (!textDirty) setTextDraft(formatIndented(doc, nextIndent === 'auto' ? 2 : nextIndent)); }}><option value="auto">Auto-detect</option><option value="2">2 spaces</option><option value="4">4 spaces</option><option value="tabs">Tabs</option></select></div><textarea aria-label="Folder structure text" spellCheck={false} value={textDraft} onChange={event => { contentRevision.current++; setTextDraft(event.target.value); setTextDirty(true); }} onKeyDown={event => { if (event.key === 'Tab') { event.preventDefault(); const input = event.currentTarget; const position = input.selectionStart; const insertion = indent === 'tabs' ? '\t' : indent === 4 ? '    ' : '  '; const next = textDraft.slice(0, position) + insertion + textDraft.slice(input.selectionEnd); contentRevision.current++; setTextDraft(next); setTextDirty(true); requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; }); } }}/><p className="fs-text-guide">One folder per line. Indent children with 2 spaces, 4 spaces, or tabs. A single root keeps everything together.</p>{parsed.error ? <div className="fs-inline-error" role="alert">{parsed.error}</div> : textDirty && <div className="fs-text-valid"><Icon name="check" size={14}/>Valid structure · preview updated</div>}<div className="fs-text-actions"><button type="button" className="fs-button" disabled={!textDirty} onClick={() => { contentRevision.current++; setTextDraft(formatIndented(doc, indent === 'auto' ? 2 : indent)); setTextDirty(false); notify('Text draft discarded.'); }}>Discard draft</button><button type="button" className="fs-button fs-primary" disabled={!textDirty || !!parsed.error} onClick={applyText}>Apply changes</button></div></div>}
         </section>
         <section className="fs-panel fs-preview" aria-label="Live preview"><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>See it take shape</h2></div><span className={`fs-live-badge ${parsed.error && mode === 'text' ? 'is-paused' : ''}`}><span/>{parsed.error && mode === 'text' ? 'LAST SAVED' : 'LIVE PREVIEW'}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>Folders</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>Text tree</button></div><button type="button" className="fs-copy" onClick={() => void copyPreview()}><Icon name="copy" size={15}/>Copy tree</button></div><div className="fs-preview-canvas">{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc)}</pre> : <div className="fs-preview-tree">{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ marginLeft: depth * 24 }}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">YOUR ROOT FOLDER</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span><strong>{previewRows.length}</strong> folders</span><span><strong>{depth}</strong> {depth === 1 ? 'level' : 'levels'}</span><span><Icon name="check" size={14}/>No files, just possibilities</span></div></section>
       </div>
@@ -223,6 +243,6 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
       {notice && <div className={`fs-notice ${noticeError ? 'is-error' : ''}`} role={noticeError ? 'alert' : 'status'}><Icon name={noticeError ? 'info' : 'check'} size={17}/><span>{notice}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice('')}><Icon name="close" size={16}/></button></div>}
       <footer className="fs-footer"><span>Small beginnings. Well-organized possibilities.</span><span><Icon name="shield" size={13}/>Your structure never leaves this browser.</span></footer>
     </main>
-    {modal && <dialog ref={dialog} className="fs-dialog" onCancel={closeModal} onClick={event => { if (event.target === event.currentTarget) closeModal(); }}><form onSubmit={submitModal}><div className="fs-dialog-top"><span className="fs-dialog-icon"><Icon name={modal.kind === 'delete' ? 'trash' : modal.kind === 'move' ? 'move' : 'folder'} size={25}/></span><button type="button" aria-label="Close dialog" className="fs-icon-button" onClick={closeModal}><Icon name="close"/></button></div><h2>{modalTitle}</h2>{modal.kind === 'add' || modal.kind === 'rename' ? <><p>{modal.kind === 'add' ? `Inside ${modalRow?.path}` : `Rename ${modalRow?.node.name}. Its contents stay together.`}</p><label htmlFor="folder-name">Folder name</label><input id="folder-name" ref={nameInput} value={name} onChange={event => { setName(event.target.value); setModalError(''); }} placeholder="e.g. Ideas, Photos, First drafts" maxLength={200} required autoComplete="off"/><small>Use a name, not a path. Avoid / \ : * ? &quot; &lt; &gt; |</small></> : modal.kind === 'delete' ? <p>Remove <strong>{modalRow?.node.name}</strong>{descendants.size > 1 ? ` and its ${descendants.size - 1} nested folders` : ''}? This only changes your plan, not folders on your device. You can undo it.</p> : modal.kind === 'move' ? <><p>Move <strong>{modalRow?.node.name}</strong> and everything inside it.</p><label htmlFor="destination">New parent folder</label><select id="destination" value={destination} onChange={event => setDestination(event.target.value)}>{rows.filter(row => !descendants.has(row.node.id)).map(row => <option key={row.node.id} value={row.node.id}>{row.path}</option>)}</select></> : <p>This will replace the current plan with a fresh template. You can use Undo to bring your previous structure back.</p>}{modalError && <div className="fs-inline-error" role="alert">{modalError}</div>}<div className="fs-dialog-actions"><button type="button" className="fs-button" onClick={closeModal}>Cancel</button><button type="submit" className={`fs-button ${modal.kind === 'delete' ? 'fs-danger' : 'fs-primary'}`}>{modal.kind === 'add' ? 'Add folder' : modal.kind === 'rename' ? 'Save name' : modal.kind === 'delete' ? 'Remove folder' : modal.kind === 'move' ? 'Move folder' : 'Use template'}</button></div></form></dialog>}
+    {modal && <dialog ref={dialog} className="fs-dialog" aria-labelledby="folderseed-dialog-title" onCancel={closeModal} onClick={event => { if (event.target === event.currentTarget) closeModal(); }}><form onSubmit={submitModal}><div className="fs-dialog-top"><span className="fs-dialog-icon"><Icon name={modal.kind === 'delete' ? 'trash' : modal.kind === 'move' ? 'move' : 'folder'} size={25}/></span><button type="button" aria-label="Close dialog" className="fs-icon-button" onClick={closeModal}><Icon name="close"/></button></div><h2 id="folderseed-dialog-title">{modalTitle}</h2>{modal.kind === 'add' || modal.kind === 'rename' ? <><p>{modal.kind === 'add' ? `Inside ${modalRow?.path}` : `Rename ${modalRow?.node.name}. Its contents stay together.`}</p><label htmlFor="folder-name">Folder name</label><input id="folder-name" ref={nameInput} value={name} onChange={event => { setName(event.target.value); setModalError(''); }} placeholder="e.g. Ideas, Photos, First drafts" maxLength={200} required autoComplete="off"/><small>Use a name, not a path. Avoid / \ : * ? &quot; &lt; &gt; |</small></> : modal.kind === 'delete' ? <p>Remove <strong>{modalRow?.node.name}</strong>{descendants.size > 1 ? ` and its ${descendants.size - 1} nested folders` : ''}? This only changes your plan, not folders on your device. You can undo it.</p> : modal.kind === 'move' ? <><p>Move <strong>{modalRow?.node.name}</strong> and everything inside it.</p><label htmlFor="destination">New parent folder</label><select id="destination" value={destination} onChange={event => setDestination(event.target.value)}>{rows.filter(row => !descendants.has(row.node.id)).map(row => <option key={row.node.id} value={row.node.id}>{row.path}</option>)}</select></> : <p>This will replace the current plan with a fresh template. You can use Undo to bring your previous structure back.</p>}{modalError && <div className="fs-inline-error" role="alert">{modalError}</div>}<div className="fs-dialog-actions"><button type="button" className="fs-button" onClick={closeModal}>Cancel</button><button type="submit" className={`fs-button ${modal.kind === 'delete' ? 'fs-danger' : 'fs-primary'}`}>{modal.kind === 'add' ? 'Add folder' : modal.kind === 'rename' ? 'Save name' : modal.kind === 'delete' ? 'Remove folder' : modal.kind === 'move' ? 'Move folder' : 'Use template'}</button></div></form></dialog>}
   </div>;
 }

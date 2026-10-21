@@ -160,6 +160,7 @@ test('supports drag nesting and refuses a cycle', async ({ page }) => {
 test('desktop and mobile layouts stay within the viewport without browser errors', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.reload();
   for (const [name, width, height] of [['desktop', 1440, 1080], ['mobile', 390, 844]] as const) {
     await page.setViewportSize({ width, height });
     await expect(page.getByRole('button', { name: 'Download ZIP', exact: true })).toBeVisible();
@@ -172,3 +173,67 @@ test('desktop and mobile layouts stay within the viewport without browser errors
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+
+test('keeps templates available on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('Choose a template', { exact: true }).selectOption({ label: 'Start from scratch' });
+  await page.getByRole('button', { name: 'Use template', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['My project']);
+  await addFolder(page, 'First folder');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['My project', 'First folder']);
+});
+
+test('embedded editor emits committed changes without looping on an inline host callback', async ({ page }) => {
+  await page.goto('/examples/index.html');
+  await expect(page.getByTestId('host-update-count')).toHaveText('1');
+  await addFolder(page, 'Embedded folder');
+  await expect(page.getByTestId('host-update-count')).toHaveText('2');
+  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Changed\n  Draft');
+  await expect(page.getByTestId('host-update-count')).toHaveText('2');
+  await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
+  await expect(page.getByTestId('host-update-count')).toHaveText('3');
+});
+
+test('does not let a delayed import overwrite a newer text draft', async ({ page }) => {
+  await page.evaluate(() => {
+    const original = File.prototype.text;
+    File.prototype.text = async function () {
+      if (this.name === 'slow.txt') await new Promise<void>(resolve => { (window as unknown as { releaseImport: () => void }).releaseImport = resolve; });
+      return original.call(this);
+    };
+  });
+  await importText(page, 'Older import\n  Old child', 'slow.txt');
+  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Newer draft\n  Keep this');
+  await page.evaluate(() => (window as unknown as { releaseImport: () => void }).releaseImport());
+  await expect(page.getByRole('alert')).toContainText('Import cancelled');
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('Newer draft\n  Keep this');
+});
+
+test('preserves an unreadable stored draft before opening a fresh example', async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem('folderseed:draft:v1', '{broken original'));
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('original is preserved');
+  const preserved = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('folderseed:draft:v1:recovery:')).map(key => localStorage.getItem(key)));
+  expect(preserved).toContain('{broken original');
+  await expect(page.locator('.fs-folder-select[title="My creative project"]')).toBeVisible();
+});
+
+for (const [label, indent] of [['4 spaces', '    '], ['Tabs', '\t']] as const) {
+  test(`keeps explicit ${label} after apply, continued editing, and refresh`, async ({ page }) => {
+    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    await page.getByLabel('Indentation', { exact: true }).selectOption({ label });
+    const input = page.getByRole('textbox', { name: 'Folder structure text' });
+    await input.fill(`Root\n${indent}Child`);
+    await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
+    await expect(input).toHaveValue(`Root\n${indent}Child`);
+    await input.fill(`Root\n${indent}Child\n${indent}Another`);
+    await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeEnabled();
+    page.on('dialog', dialog => dialog.accept());
+    await page.reload();
+    await expect(page.getByLabel('Indentation', { exact: true })).toHaveValue(label === 'Tabs' ? 'tabs' : '4');
+    await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeEnabled();
+  });
+}

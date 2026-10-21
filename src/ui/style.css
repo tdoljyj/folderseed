@@ -2027,3 +2027,12 @@
   .fs-export-subtype { align-items: flex-start; flex-direction: column; gap: 7px; }
   .fs-export-subtype select { width: 100%; min-height: 38px; font-size: 12px; }
 }
+
+/* Row edges insert at the target's level; the middle nests inside it. */
+.fs-tree-item { position: relative; }
+.fs-drop-line { position: absolute; right: 8px; height: 2px; background: #0068d9; z-index: 2; pointer-events: none; border-radius: 2px; }
+.fs-drop-line.is-before { top: 0; }
+.fs-drop-line.is-after { bottom: 0; }
+.fs-drop-line::before { content: ''; position: absolute; left: -3px; top: -2px; width: 6px; height: 6px; border: 1px solid #0068d9; border-radius: 50%; background: #fff; }
+.fs-tree-row.is-drop-invalid { background: #fff0f0; border-color: #c54b4b; }
+.fs-tree-row.is-drop-target { background: #dbeafe; border-color: #0068d9; }

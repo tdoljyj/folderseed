@@ -66,7 +66,7 @@ Markdown output wraps every folder name in a complete code span. Its delimiter i
 - `removeFolder(document, id)`
 - `moveFolder(document, id, parentId, index?)`
 
-Each operation returns a validated copy. Deleting or moving the root is rejected. A move cannot target the node itself or any descendant. `index` is the final insertion position in the destination after removing the source; omit it to append.
+Each operation returns a validated copy. Deleting or moving the root is rejected. A move cannot target the node itself or any descendant. `index` is the final insertion position in the destination after removing the source; omit it to append. The UI `moveByDrop` adapter computes before/after positions from the target parent with the source already removed, preventing same-parent off-by-one errors. Row-edge hit zones use the outer 25% of row height; the center nests inside. The root only accepts nesting. Insertion lines use the whole target subtree boundary, while nesting highlights the target row. The Move dialog exposes the same final-index placement without dragging.
 
 These pure operations make history straightforward: retain earlier documents rather than relying on inverse operations. Hosts can build their own history and persistence around the same core.
 
@@ -129,6 +129,8 @@ Styles use the `.fs-app` root and namespaced `.fs-*` classes; import `src/ui/sty
 Legacy automatic-format drafts are migrated by `restoreTextFormat` only if an explicit parser yields the same tree. For committed drafts, the saved document is authoritative; for pending drafts, the old parser must succeed first. Invalid automatic drafts retain their raw source and internal parsing rule with the default Plain text label. Clicking that label only enters editing and does not reinterpret the draft; choosing a menu item explicitly changes its parser. Automatic format detection remains available to file imports and the core API, but is not an editor option.
 
 The format menu implements arrow/Home/End/typeahead navigation, Enter/Space activation, Escape focus restoration, normal Tab dismissal, and outside pointer/focus dismissal. It is closed rather than activated during input-method composition.
+
+Document shortcuts are handled on the editor root, not on `window` or `document`. Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (plus Ctrl+Y) invoke the same history actions as the buttons. Inputs, textareas, selects, editable content, dialogs, and composing events are excluded. Completed or cancelled drags return focus to the dragged folder so keyboard history works immediately; unrelated host controls remain outside the event scope.
 
 ### Persistence
 

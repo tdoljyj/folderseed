@@ -18,6 +18,14 @@ No account, backend, API key, or command-line knowledge is needed to use the edi
 
 FolderSeed currently models **folders only**, under one root folder. It does not create files or execute scripts.
 
+## Moving and ordering folders
+
+Drag a folder to the **top or bottom edge of a row** to insert it before or after that folder at the same level. A blue insertion line marks the destination; for an expanded folder, an after-line appears below its whole subtree. Drop in the **middle of a row** to nest inside it, indicated by a filled highlight. The root stays fixed, and drops into your own descendants are rejected.
+
+No dragging is required: select a folder and use **Move up / Move down**, or open **Move** and choose both a **New parent folder** and a **Position** (before a folder or at the end). These controls also work with a keyboard and on touch screens. Moves keep the subtree together, support Undo/Redo, and preserve the displayed order in autosaved drafts and exports.
+
+With focus in the editor, use **Ctrl+Z** (Mac: **Cmd+Z**) to undo visual changes, including drag reordering. Redo with **Ctrl/Cmd+Shift+Z** or **Ctrl+Y**. Text fields and editable content keep their native text undo; document shortcuts are paused in dialogs and during input-method composition. Shortcuts do not capture keys from controls outside an embedded FolderSeed editor.
+
 ## Choose the right export
 
 The six export cards remain ZIP, Plain text, Markdown, JSON, SVG, and PNG. **Plain text** offers Indented text, ASCII tree, or Unicode tree; **Markdown** offers Nested list or Fenced tree.

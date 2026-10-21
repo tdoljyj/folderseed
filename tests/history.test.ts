@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDocument } from '../src/core';
-import { historyReducer, type HistoryState } from '../src/ui/history';
+import { historyReducer, historyShortcut, type HistoryState } from '../src/ui/history';
 describe('immutable history', () => {
   const start = (): HistoryState => ({ past: [], present: createDocument('Start'), future: [] });
   it('undoes and redoes without changing earlier snapshots', () => {
@@ -23,5 +23,25 @@ describe('immutable history', () => {
     let state = start();
     for (let i = 0; i < 60; i++) state = historyReducer(state, { type: 'commit', document: createDocument(`Step ${i}`) });
     expect(state.past).toHaveLength(50);
+  });
+});
+
+
+describe('document history shortcuts', () => {
+  const keyEvent = { key: 'z', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, isComposing: false };
+  it.each([
+    [{ ctrlKey: true }, 'undo'],
+    [{ metaKey: true }, 'undo'],
+    [{ ctrlKey: true, shiftKey: true, key: 'Z' }, 'redo'],
+    [{ metaKey: true, shiftKey: true }, 'redo'],
+    [{ ctrlKey: true, key: 'y' }, 'redo'],
+    [{}, null],
+    [{ ctrlKey: true, altKey: true }, null],
+    [{ metaKey: true, isComposing: true }, null],
+    [{ metaKey: true, key: 'y' }, null],
+    [{ ctrlKey: true, shiftKey: true, key: 'y' }, null],
+    [{ ctrlKey: true, key: 'a' }, null],
+  ] as const)('recognizes only supported unambiguous chords: %j', (overrides, expected) => {
+    expect(historyShortcut({ ...keyEvent, ...overrides })).toBe(expected);
   });
 });

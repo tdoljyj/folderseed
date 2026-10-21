@@ -172,7 +172,7 @@ test('supports drag nesting and refuses a cycle', async ({ page }) => {
   await expect(page.locator('.fs-selected-path')).toContainText('Project/Alpha/Beta');
   const nested = page.locator('.fs-tree-row').filter({ has: page.locator('.fs-folder-select[title="Nested"]') });
   await alpha.dragTo(nested);
-  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.locator('.fs-drop-line')).toHaveCount(0);
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Nested', 'Beta']);
 });
 
@@ -710,4 +710,165 @@ test('keeps the label and chevron hit areas separate even at their shared edge',
   await page.mouse.click(labelBox.x + labelBox.width - 2, labelBox.y + labelBox.height / 2);
   await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toBeVisible();
   await expect(page.getByRole('menu')).toHaveCount(0);
+});
+
+
+const folderRow = (page: Page, name: string) => page.locator('.fs-tree-row').filter({ has: page.locator('.fs-folder-select').filter({ has: page.locator('.fs-folder-name').filter({ hasText: new RegExp(`^${name}$`) }) }) });
+async function dropAtRow(page: Page, source: string, target: string, placement: 'before' | 'inside' | 'after') {
+  const destination = folderRow(page, target);
+  const box = (await destination.boundingBox())!;
+  await folderRow(page, source).dragTo(destination, { targetPosition: { x: box.width - 20, y: placement === 'before' ? 2 : placement === 'after' ? box.height - 2 : box.height / 2 } });
+}
+
+test('reorders at both row edges, preserves undo/autosave, and exports the new order', async ({ page }) => {
+  await importText(page, 'Project\n  Alpha\n  Beta\n  Gamma\n  Delta');
+  await expect(folderRow(page, 'Project')).toHaveAttribute('draggable', 'false');
+  await dropAtRow(page, 'Delta', 'Beta', 'before');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Delta', 'Beta', 'Gamma']);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Beta', 'Gamma', 'Delta']);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await dropAtRow(page, 'Alpha', 'Beta', 'after');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Delta', 'Beta', 'Alpha', 'Gamma']);
+  // An already-adjacent drop must not add an empty undo step.
+  await dropAtRow(page, 'Delta', 'Beta', 'before');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Delta', 'Beta', 'Gamma']);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await page.reload();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Delta', 'Beta', 'Alpha', 'Gamma']);
+  const zip = await downloadFormat(page, 'Folder ZIP', 'zip');
+  expect(Object.keys(unzipSync(zip))).toEqual(['Project/', 'Project/Delta/', 'Project/Beta/', 'Project/Alpha/', 'Project/Gamma/']);
+  const text = await downloadFormat(page, 'Plain text', 'txt');
+  expect(text.toString()).toBe('Project\n    Delta\n    Beta\n    Alpha\n    Gamma\n');
+});
+
+test('inserts a moved subtree between children of another parent without nesting it into the target', async ({ page }) => {
+  await importText(page, 'Project\n  Source\n    Moving\n      Leaf\n  Target\n    First\n    Last');
+  await dropAtRow(page, 'Moving', 'Last', 'before');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Source', 'Target', 'First', 'Moving', 'Leaf', 'Last']);
+  await selectFolder(page, 'Moving');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Target/Moving');
+  await dropAtRow(page, 'Moving', 'First', 'after');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Source', 'Target', 'First', 'Moving', 'Leaf', 'Last']);
+  await dropAtRow(page, 'Moving', 'Source', 'inside');
+  await selectFolder(page, 'Leaf');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Source/Moving/Leaf');
+});
+
+test('shows the insertion line after an expanded subtree while a real pointer drag is in progress', async ({ page }, testInfo) => {
+  await importText(page, 'Project\n  Alpha\n    Nested\n  Beta\n  Gamma');
+  const source = (await folderRow(page, 'Gamma').boundingBox())!;
+  const target = (await folderRow(page, 'Alpha').boundingBox())!;
+  const nested = (await folderRow(page, 'Nested').boundingBox())!;
+  await page.mouse.move(source.x + source.width - 18, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(source.x + source.width - 30, source.y + source.height / 2, { steps: 4 });
+  await page.mouse.move(target.x + target.width - 20, target.y + target.height / 2, { steps: 12 });
+  await page.mouse.move(target.x + target.width - 19, target.y + target.height / 2);
+  await expect(folderRow(page, 'Alpha')).toHaveClass(/is-drop-target/);
+  await expect(page.locator('.fs-drop-line')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('drag-nest-inside.png'), fullPage: true });
+  await page.mouse.move(target.x + target.width - 20, target.y + target.height - 2, { steps: 4 });
+  await page.mouse.move(target.x + target.width - 19, target.y + target.height - 2);
+  const line = page.locator('.fs-drop-line.is-after');
+  await expect(line).toBeVisible();
+  const lineBox = (await line.boundingBox())!;
+  expect(lineBox.y).toBeGreaterThanOrEqual(nested.y + nested.height - 2);
+  await expect(folderRow(page, 'Alpha')).not.toHaveClass(/is-drop-target/);
+  await expect(page.locator('.fs-tree-help')).toContainText('Release to insert after');
+  await page.screenshot({ path: testInfo.outputPath('drag-insert-after-subtree.png'), fullPage: true });
+  await page.mouse.up();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Nested', 'Gamma', 'Beta']);
+  await expect(page.locator('.fs-drop-line')).toHaveCount(0);
+});
+
+test('offers exact insertion positions through the keyboard-accessible Move dialog', async ({ page }) => {
+  await importText(page, 'Project\n  Left\n    Moving\n      Leaf\n  Right\n    First\n    Last');
+  await selectFolder(page, 'Moving');
+  await page.getByRole('button', { name: 'Move', exact: true }).click();
+  await page.getByLabel('New parent folder', { exact: true }).selectOption({ label: 'Project/Right' });
+  await page.getByLabel('Position', { exact: true }).selectOption({ label: 'Before Last' });
+  await page.getByRole('button', { name: 'Move folder', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Left', 'Right', 'First', 'Moving', 'Leaf', 'Last']);
+  await page.getByRole('button', { name: 'Move', exact: true }).click();
+  await page.getByLabel('Position', { exact: true }).selectOption({ label: 'Before First' });
+  await page.getByRole('button', { name: 'Move folder', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Left', 'Right', 'Moving', 'Leaf', 'First', 'Last']);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Left', 'Right', 'First', 'Moving', 'Leaf', 'Last']);
+});
+
+
+test('undoes and redoes a completed drag using editor-scoped keyboard shortcuts', async ({ page }) => {
+  await importText(page, 'Project\n  Alpha\n  Beta\n  Gamma');
+  await dropAtRow(page, 'Gamma', 'Alpha', 'before');
+  await expect(page.locator('.fs-folder-select[title="Gamma"]')).toBeFocused();
+  const original = ['Project', 'Alpha', 'Beta', 'Gamma'];
+  const moved = ['Project', 'Gamma', 'Alpha', 'Beta'];
+  await expect(page.locator('.fs-folder-name')).toHaveText(moved);
+  for (const [undo, redo] of [['Control+z', 'Control+Shift+z'], ['Control+z', 'Control+y'], ['Meta+z', 'Meta+Shift+z']]) {
+    await page.keyboard.press(undo);
+    await expect(page.locator('.fs-folder-name')).toHaveText(original);
+    await page.keyboard.press(redo);
+    await expect(page.locator('.fs-folder-name')).toHaveText(moved);
+  }
+});
+
+test('leaves textarea undo native instead of rewriting text through document history', async ({ page }) => {
+  const raw = 'Project\n  Original';
+  await importText(page, raw);
+  await formatButton(page).click();
+  const input = page.getByRole('textbox', { name: 'Folder structure text' });
+  await expect(input).toHaveValue(raw);
+  await input.focus();
+  await input.press('Control+End');
+  await input.pressSequentially(' Edited');
+  await expect(input).toHaveValue(raw + ' Edited');
+  await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
+  await input.press('Control+z');
+  // Document undo would regenerate four-space output; native undo retains the original two spaces.
+  await expect(input).toHaveValue(raw);
+  await expect(page.locator('.fs-preview-row')).toHaveCount(2);
+});
+
+test('does not apply document shortcuts inside dialogs or editable fields', async ({ page }) => {
+  await importText(page, 'Project\n  Original');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  const input = page.getByLabel('Folder name', { exact: true });
+  await input.fill('');
+  await input.pressSequentially('Changed');
+  await input.press('Control+z');
+  await expect(input).not.toHaveValue('Changed');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Original']);
+  await page.getByRole('button', { name: 'Save name', exact: true }).focus();
+  await page.keyboard.press('Control+z');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Original']);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.evaluate(() => {
+    const field = document.createElement('div'); field.contentEditable = 'true'; field.setAttribute('aria-label', 'Editable note'); field.setAttribute('role', 'textbox'); field.textContent = 'Note';
+    document.querySelector('.fs-app')!.append(field);
+  });
+  const note = page.getByRole('textbox', { name: 'Editable note', exact: true });
+  await note.focus();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type(' Changed');
+  await page.keyboard.press('Control+z');
+  await expect(note).toHaveText('Note');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Original']);
+});
+
+test('does not capture undo intended for controls outside the embedded editor', async ({ page }) => {
+  await importText(page, 'Project\n  Original');
+  await addFolder(page, 'Added');
+  await page.evaluate(() => {
+    const button = document.createElement('button'); button.textContent = 'Host action'; document.body.append(button);
+  });
+  await page.getByRole('button', { name: 'Host action', exact: true }).focus();
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Original', 'Added']);
+  await selectFolder(page, 'Project');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Original']);
 });

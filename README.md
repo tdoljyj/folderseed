@@ -10,7 +10,7 @@ No account, backend, API key, or command-line knowledge is needed to use the edi
 
 - Add, rename, delete, reorder, and move folders in a visual editor.
 - Undo and redo changes, start from a template, and keep a local draft between visits.
-- Edit plain outlines, Markdown lists, or ASCII/Unicode trees. Plain-text indentation supports **2 spaces, 4 spaces, or tabs**.
+- Edit plain outlines, Markdown lists, or ASCII/Unicode trees. Pasted and imported text supports **2 spaces, 4 spaces, or tabs**. Generated outlines use four spaces; there is no indentation setting to configure.
 - See valid text changes in the preview immediately; the folder model updates automatically after a short pause. Invalid input is reported instead of silently flattening your structure.
 - Import text, Markdown, or a versioned JSON document.
 - Export actual folders as ZIP, or choose plain text, ASCII/Unicode trees, Markdown lists/trees, JSON, SVG, or PNG.
@@ -25,7 +25,7 @@ The six export cards remain ZIP, Plain text, Markdown, JSON, SVG, and PNG. **Pla
 | Format | What you get | Import again? |
 | --- | --- | --- |
 | **ZIP** | The actual empty folders, including the root and every nested folder. Extract the archive to create them on your device. | No ZIP import |
-| **TXT** | A plain-text, two-space-indented outline. | Yes |
+| **TXT** | A plain-text, four-space-indented outline. | Yes |
 | **ASCII tree** | A connector-based tree in an `.ascii.txt` file. | Yes |
 | **Unicode tree** | A tree with `├──` and `└──` connectors in a `.tree.txt` file. | Yes |
 | **Markdown** | A nested bullet list in a `.md` file. | Yes |
@@ -102,21 +102,21 @@ Use one unindented root and a consistent indentation style below it:
 
 ```text
 My project
-  Documents
-    Notes
-  Media
-    Photos
-    Video
-  Archive
+    Documents
+        Notes
+    Media
+        Photos
+        Video
+    Archive
 ```
 
 ### Supported text formats
 
-Choose **Auto-detect**, **Plain text**, **Markdown list**, **ASCII tree**, or **Unicode tree**. Use an explicit format when a folder name resembles list or tree syntax and automatic detection is not what you intend.
+Use the compact format dropdown beside the editing-mode buttons to choose **Auto-detect**, **Plain text**, **Markdown list**, **ASCII tree**, or **Unicode tree**. Use an explicit format when a folder name resembles list or tree syntax and automatic detection is not what you intend.
 
 Changing the format converts valid text to that representation; choosing Auto-detect preserves the current raw text. If the text is invalid, changing the format only changes how it is interpreted, so you can correct a mistaken format selection without losing the draft.
 
-- **Plain text:** one root followed by indented children. Use two spaces, four spaces, or one tab per level. Automatic indentation detection uses the first child; an explicit indentation setting is also available.
+- **Plain text:** one root followed by indented children. Use two spaces, four spaces, or one tab per level. Indentation is detected from the first child; no manual setting is needed. Generated text and the Tab key use four spaces per level, while pasted or imported text keeps its original spacing.
 - **Markdown list:** one-root nested unordered lists using `-`, `*`, or `+` markers, with consistent two-space, four-space, or tab indentation. Ordered lists are not supported. Exported labels use whole-name code spans so punctuation remains part of the folder name, not Markdown styling.
 - **ASCII tree:** connector-based trees using `|--`, `` `-- ``, or `+--` branches. Only the connectors are ASCII; Unicode folder names remain UTF-8 text.
 - **Unicode tree:** branches such as `├──` and `└──` with matching indentation.
@@ -128,9 +128,9 @@ For example, these Markdown and ASCII inputs describe the same structure:
 
 ```markdown
 - My project
-  - Documents
-    - Notes
-  - Media
+    - Documents
+        - Notes
+    - Media
 ```
 
 ```text
@@ -158,7 +158,7 @@ There is no Apply button. Valid text updates the preview immediately and is comm
 
 An invalid draft shows an error with a source line when available and keeps the **last valid structure** in the preview. The invalid text stays in the editor; it is never silently replaced. Fix the error or choose **Revert text** to explicitly return to a valid structure. Export, switching to visual editing, importing, and opening a template are blocked while text is invalid.
 
-Exporting, copying, or switching editor tabs commits valid pending text first, so these actions do not use an older version of the tree. **Copy tree** always copies the Unicode tree shown by the text-tree preview. Browser autosave retains the raw text, editor mode, selected format and indentation, and last valid document—including when the text is temporarily invalid or empty. Reloading restores that editing state; undo history remains session-only.
+Exporting, copying, or switching editor tabs commits valid pending text first, so these actions do not use an older version of the tree. **Copy tree** always copies the Unicode tree shown by the text-tree preview. Browser autosave retains the raw text, editor mode, selected format, and last valid document—including when the text is temporarily invalid or empty. Reloading restores that editing state; unfinished drafts from older versions also retain their original parsing rule. Undo history remains session-only.
 
 All exported text and Markdown variants can be parsed again using their matching format. Auto-detect is a convenience, not a guarantee for syntax-like names: for example, choose Plain text to preserve a root literally named `- Notes`. Text parsing creates new IDs; JSON preserves IDs and is the preferred lossless project format.
 
@@ -248,7 +248,7 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 - Folder names are treated as text, not HTML or commands. No scripts are generated or run.
 - Unsafe names, path traversal, control characters, operating-system reserved names, and duplicate sibling names are rejected.
 - ZIP entries are folder-only, use validated paths, and preserve empty folders.
-- Local drafts use browser storage and include raw editor text, even when invalid or empty, together with its mode, format, indentation, and the last valid document. An unreadable saved draft is preserved under a timestamped recovery key before the active draft is replaced; if that backup cannot be saved, autosave pauses rather than overwriting the original. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
+- Local drafts use browser storage and include raw editor text, even when invalid or empty, together with its mode, format, and the last valid document. An unreadable saved draft is preserved under a timestamped recovery key before the active draft is replaced; if that backup cannot be saved, autosave pauses rather than overwriting the original. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
 - After the app has loaded, editing and exports do not need a network connection. This is not an installable offline/PWA app; a first load or later reload may still require access to its host.
 
 ## Current limits

@@ -880,22 +880,6 @@
 .fs-text-area {
   padding: 15px 19px;
 }
-.fs-text-options {
-  color: #626268;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  font-size: 10px;
-  display: flex;
-}
-.fs-text-options select {
-  color: #626268;
-  background: #fff;
-  border: 1px solid #e3e6eb;
-  border-radius: 5px;
-  padding: 4px 7px;
-  font-size: 10px;
-}
 .fs-text-area textarea {
   resize: vertical;
   color: #626268;
@@ -2018,16 +2002,17 @@
 }
 
 /* Text editing applies valid changes automatically without altering the typed source. */
-.fs-format-controls { align-items: flex-end; gap: 12px; }
-.fs-format-controls label { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
-.fs-format-controls select { width: 100%; min-height: 33px; font-size: 11px; border-radius: 7px; }
+.fs-editor-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px 20px 0; }
+.fs-editor-toolbar .fs-editor-tabs { margin: 0; flex-shrink: 0; }
+.fs-inline-format { min-width: 132px; max-width: 100%; min-height: 35px; border: 1px solid #dcdce3; border-radius: 7px; padding: 5px 8px; color: #37373d; background: #fff; font-size: 11px; }
+@media (max-width: 1200px) { .fs-editor-toolbar { padding-inline: 13px; } }
 .fs-export-subtype { display: flex; align-items: center; gap: 12px; padding: 16px 0 0; color: #626268; font-size: 11px; }
 .fs-export-subtype select { border: 1px solid #dcdce3; border-radius: 7px; padding: 7px 10px; color: #37373d; background: #fff; font-size: 11px; }
 .fs-error-detail { display: block; margin-top: 5px; opacity: .85; }
 .fs-save-state { max-width: 50%; text-align: right; }
 @media (max-width: 600px) {
-  .fs-format-controls { gap: 9px; }
-  .fs-format-controls select { font-size: 12px; min-height: 37px; }
+  .fs-editor-toolbar { padding-inline: 16px; gap: 9px; }
+  .fs-inline-format { min-height: 37px; font-size: 12px; }
   .fs-export-subtype { align-items: flex-start; flex-direction: column; gap: 7px; }
   .fs-export-subtype select { width: 100%; min-height: 38px; font-size: 12px; }
 }

@@ -30,6 +30,8 @@ test('serves every production asset below the Pages project path', async ({ page
 test('edits, reloads, and downloads every format from the production app', async ({ page }) => {
   await page.goto('./');
   await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await expect(page.locator('.fs-editor-toolbar').getByLabel('Text format', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Pages test\n  Assets\n    Images\n  Notes');
   await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document?.root?.name)).toBe('Pages test');
@@ -49,6 +51,7 @@ test('edits, reloads, and downloads every format from the production app', async
     const bytes = await readFile((await download.path())!);
     expect(bytes.length).toBeGreaterThan(0);
     if (extension === 'zip') expect(Object.keys(unzipSync(bytes))).toEqual(['Pages test/', 'Pages test/Assets/', 'Pages test/Assets/Images/', 'Pages test/Notes/']);
+    if (extension === 'txt') expect(bytes.toString()).toBe('Pages test\n    Assets\n        Images\n    Notes\n');
     if (extension === 'json') expect(JSON.parse(bytes.toString()).root.name).toBe('Pages test');
     if (extension === 'png') expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   }

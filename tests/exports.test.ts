@@ -89,6 +89,11 @@ describe('directory exports', () => {
     expect(output.blob.type).toContain('text/plain');
   });
 
+  it.each([['txt', 'Root\n    Child\n        Grandchild\n'], ['md', '- `Root`\n    - `Child`\n        - `Grandchild`\n']] as const)('%s output uses four spaces per level', async (format, expected) => {
+    const output = await createExport(parseIndented('Root\n  Child\n    Grandchild'), format);
+    expect(await output.blob.text()).toBe(expected);
+  });
+
   it('Markdown tree keeps the fenced Unicode tree as a separate export choice', async () => {
     const document = fixture();
     const output = await createExport(document, 'md-tree');
@@ -126,7 +131,7 @@ describe('directory exports', () => {
     const output = await createExport(fixture(), 'md');
     const text = await output.blob.text();
     expect(text).toMatch(/^- /);
-    expect(text).toMatch(/\n  - /);
+    expect(text).toMatch(/\n    - /);
     expect(text).not.toMatch(/^```/);
   });
 

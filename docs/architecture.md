@@ -47,6 +47,8 @@ Use `validateDocument` at trust boundaries. Never construct a ZIP path directly 
 - `parseJSON(text)` and `serializeJSON(document)`: the versioned, ID-preserving project format.
 - `flatten(document)`: returns nodes with `parentId`, `depth`, and slash-separated relative `path`.
 
+The standalone editor has no indentation selector: generated text, the Tab key, and TXT/Markdown-list downloads use four spaces. Core formatter defaults remain unchanged for library consumers. Pasted and imported source is kept verbatim. Unfinished legacy drafts retain their stored parsing rule until committed or reverted; new drafts use automatic detection.
+
 Automatic indentation detection uses the first indented line, then enforces the detected style. It supports two spaces, four spaces, or tabs and does not infer missing levels or silently repair mixed indentation. Errors retain source line numbers where possible.
 
 The text parser supports plain outlines, Markdown unordered lists (`-`, `*`, or `+` markers), ASCII connectors (`|--`, `` `-- ``, or `+--`), and Unicode connectors (`├──` and `└──`). Markdown lists contain one root and use consistent two-space, four-space, or tab indentation; ordered lists are rejected.
@@ -126,7 +128,7 @@ Styles use the `.fs-app` root and namespaced `.fs-*` classes; import `src/ui/sty
 
 ### Persistence
 
-The standalone editor keeps its draft in browser `localStorage` under `folderseed:draft:v1`. The saved state includes raw text (including invalid or empty text), mode, format, indentation, and the last valid document; reloading restores the editing state rather than silently normalizing it. Set a different `storageKey` to isolate separate embedded projects, or set it to `false` to opt out. A host that persists documents should validate them on load and use JSON exports for portable backups.
+The standalone editor keeps its draft in browser `localStorage` under `folderseed:draft:v1`. The saved state includes raw text (including invalid or empty text), mode, format, a compatibility parsing rule for unfinished legacy drafts, and the last valid document; reloading restores the editing state rather than silently normalizing it. Set a different `storageKey` to isolate separate embedded projects, or set it to `false` to opt out. A host that persists documents should validate them on load and use JSON exports for portable backups.
 
 Storage can be unavailable or cleared. It is not cloud synchronization, transactional multi-tab editing, or a guaranteed backup. Treat document changes as private user data when integrating with a host application's persistence.
 

@@ -23,6 +23,7 @@ const formats: { id: ExportFormat; title: string; description: string; icon: str
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 
 const AUTO_APPLY_MS = 350;
+const OUTPUT_INDENT = 4;
 const textFormats: { value: TextFormat; label: string }[] = [
   { value: 'auto', label: 'Auto-detect' },
   { value: 'plain', label: 'Plain text' },
@@ -63,7 +64,7 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
           pending,
           mode: stored.mode === 'text' || pending ? 'text' : 'visual',
           textFormat: restoredFormat,
-          indent: restoredIndent,
+          indent: pending ? restoredIndent : 'auto',
         };
       }
     } catch {
@@ -86,8 +87,9 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'visual' | 'text'>(initial.mode);
   const [textFormat, setTextFormat] = useState<TextFormat>(initial.textFormat);
+  // Only unfinished legacy drafts retain an explicit parsing rule; new input is auto-detected.
   const [indent, setIndent] = useState<ParseIndent>(initial.indent);
-  const [textDraft, setTextDraft] = useState(initial.draft ?? formatIndented(doc, initial.indent === 'auto' ? 2 : initial.indent));
+  const [textDraft, setTextDraft] = useState(initial.draft ?? formatIndented(doc, OUTPUT_INDENT));
   const [textDirty, setTextDirty] = useState(initial.pending);
   const [composing, setComposing] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('zip');
@@ -172,12 +174,12 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   }, [textDirty]);
 
   function notify(message: string, error = false) { setNotice(message); setNoticeError(error); }
-  function editorText(next: DirectoryDocument, chosenFormat = textFormat, chosenIndent = indent) {
+  function editorText(next: DirectoryDocument, chosenFormat = textFormat) {
     let outputFormat = chosenFormat;
     if (outputFormat === 'auto') {
       try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
     }
-    return formatText(next, outputFormat, chosenIndent === 'auto' ? 2 : chosenIndent);
+    return formatText(next, outputFormat, OUTPUT_INDENT);
   }
   function replaceEditorText(next: DirectoryDocument) {
     // Programmatic output has a known syntax; pin it rather than guessing from a new folder name.
@@ -191,7 +193,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   function commit(next: DirectoryDocument, message: string) {
     contentRevision.current++;
     dispatch({ type: 'commit', document: next });
-    replaceEditorText(next); setTextDirty(false); notify(message);
+    replaceEditorText(next); setTextDirty(false); setIndent('auto'); notify(message);
   }
   function applyPendingText(): DirectoryDocument | null {
     if (composingRef.current || parsed.error) return null;
@@ -201,6 +203,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     if (next !== doc) dispatch({ type: 'commit', document: next });
     // Do not serialize here: preserve the user's spelling, spacing, selection, and caret.
     setTextDirty(false);
+    setIndent('auto');
     setCollapsed(new Set());
     return next;
   }
@@ -217,7 +220,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   }
   function revertText() {
     contentRevision.current++;
-    replaceEditorText(doc); setTextDirty(false); notify('Restored the last valid structure.');
+    replaceEditorText(doc); setTextDirty(false); setIndent('auto'); notify('Restored the last valid structure.');
   }
   function changeTextFormat(nextFormat: TextFormat) {
     contentRevision.current++;
@@ -227,21 +230,13 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     setTextFormat(nextFormat);
     if (nextFormat !== 'auto') setTextDraft(editorText(next, nextFormat));
   }
-  function changeIndent(nextIndent: ParseIndent) {
-    contentRevision.current++;
-    if (invalidDraft) { setIndent(nextIndent); return; }
-    const next = flushText();
-    if (!next) return;
-    setIndent(nextIndent);
-    if (nextIndent !== 'auto') setTextDraft(editorText(next, textFormat, nextIndent));
-  }
   function historyStep(type: 'undo' | 'redo') {
     const nextDocument = flushText();
     if (!nextDocument) return;
     const current = nextDocument === doc ? history : historyReducer(history, { type: 'commit', document: nextDocument });
     const next = historyReducer(current, { type });
     contentRevision.current++;
-    dispatch({ type }); replaceEditorText(next.present); setTextDirty(false); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
+    dispatch({ type }); replaceEditorText(next.present); setTextDirty(false); setIndent('auto'); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
   }
   function openModal(next: Modal) {
     if (!flushText()) return;
@@ -353,7 +348,10 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
       <div className="fs-workspace-grid">
         <section className="fs-panel fs-editor" aria-label="Folder editor">
           <div className="fs-panel-heading"><div><span className="fs-step">01</span><h2>Make it yours</h2></div><div className="fs-history"><button type="button" aria-label="Undo" title="Undo" disabled={(!history.past.length && !textDirty) || blockedDraft} onClick={() => historyStep('undo')}><Icon name="undo" size={17}/></button><button type="button" aria-label="Redo" title="Redo" disabled={!history.future.length || textDirty || blockedDraft} onClick={() => historyStep('redo')}><Icon name="redo" size={17}/></button></div></div>
-          <div className="fs-editor-tabs" role="tablist" aria-label="Editing mode"><button type="button" role="tab" aria-selected={mode === 'visual'} aria-controls="visual-editor" id="visual-tab" onClick={() => { if (flushText()) setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button><button type="button" role="tab" aria-selected={mode === 'text'} aria-controls="text-editor" id="text-tab" onClick={() => setMode('text')}><Icon name="code" size={16}/>Text editor</button></div>
+          <div className="fs-editor-toolbar">
+            <div className="fs-editor-tabs" role="tablist" aria-label="Editing mode"><button type="button" role="tab" aria-selected={mode === 'visual'} aria-controls="visual-editor" id="visual-tab" onClick={() => { if (flushText()) setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button><button type="button" role="tab" aria-selected={mode === 'text'} aria-controls="text-editor" id="text-tab" onClick={() => setMode('text')}><Icon name="code" size={16}/>Text editor</button></div>
+            {mode === 'text' && <select className="fs-inline-format" aria-label="Text format" value={textFormat} disabled={composing} onChange={event => changeTextFormat(event.target.value as TextFormat)}>{textFormats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>}
+          </div>
           {mode === 'visual' ? <div id="visual-editor" role="tabpanel" aria-labelledby="visual-tab" className="fs-visual-area">
             <div className="fs-tree-help"><span>{rows.length} folders, a world of possibilities</span><span>Drag to nest</span></div>
             <ul className="fs-tree" aria-label="Folder list">{renderFolder(doc.root, 0)}</ul>
@@ -361,16 +359,6 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
             <button type="button" className="fs-add-folder" onClick={() => openModal({ kind: 'add', id: selected.node.id })}><Icon name="plus" size={17}/>Add folder<span>inside {selected.node.name}</span></button>
             <div className="fs-selection-tools"><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><div className="fs-tool-buttons"><button type="button" onClick={() => openModal({ kind: 'rename', id: selected.node.id })}><Icon name="edit" size={15}/>Rename</button><button type="button" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={15}/>Move</button><button type="button" aria-label="Move up" title="Move up" disabled={!parent || siblingIndex <= 0} onClick={() => reorder(-1)}><Icon name="up" size={15}/></button><button type="button" aria-label="Move down" title="Move down" disabled={!parent || siblingIndex >= parent.children.length - 1} onClick={() => reorder(1)}><Icon name="down" size={15}/></button><button type="button" className="fs-danger-icon" aria-label="Delete folder" title="Delete folder" disabled={!parent} onClick={() => openModal({ kind: 'delete', id: selected.node.id })}><Icon name="trash" size={15}/></button></div></div>
           </div> : <div id="text-editor" role="tabpanel" aria-labelledby="text-tab" className="fs-text-area">
-            <div className="fs-text-options fs-format-controls">
-              <label htmlFor="text-format">Text format
-                <select id="text-format" aria-label="Text format" value={textFormat} disabled={composing} onChange={event => changeTextFormat(event.target.value as TextFormat)}>{textFormats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-              </label>
-              <label htmlFor="indent">Indentation
-                <select id="indent" aria-label="Indentation" value={indent} disabled={composing || textFormat === 'ascii' || textFormat === 'unicode'} onChange={event => changeIndent(event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent)}>
-                  <option value="auto">Auto-detect</option><option value="2">2 spaces</option><option value="4">4 spaces</option><option value="tabs">Tabs</option>
-                </select>
-              </label>
-            </div>
             <textarea aria-label="Folder structure text" spellCheck={false} value={textDraft}
               onChange={event => changeText(event.target.value)}
               onCompositionStart={() => { composingRef.current = true; setComposing(true); contentRevision.current++; }}
@@ -380,7 +368,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
                   event.preventDefault();
                   const input = event.currentTarget;
                   const position = input.selectionStart;
-                  const insertion = indent === 'tabs' ? '\t' : indent === 4 || textFormat === 'ascii' || textFormat === 'unicode' ? '    ' : '  ';
+                  const insertion = ' '.repeat(OUTPUT_INDENT);
                   changeText(textDraft.slice(0, position) + insertion + textDraft.slice(input.selectionEnd));
                   requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; });
                 }

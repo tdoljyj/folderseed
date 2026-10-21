@@ -232,11 +232,11 @@ test('preserves an unreadable stored draft before opening a fresh example', asyn
   await expect(page.locator('.fs-folder-select[title="My creative project"]')).toBeVisible();
 });
 
-for (const [label, indent] of [['4 spaces', '    '], ['Tabs', '\t']] as const) {
-  test(`preserves explicit ${label}, raw text, and cursor through automatic save and refresh`, async ({ page }) => {
+for (const [label, indent] of [['2 spaces', '  '], ['4 spaces', '    '], ['tabs', '\t']] as const) {
+  test(`preserves pasted ${label}, raw text, and cursor through automatic save and refresh`, async ({ page }) => {
     await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
     await page.getByLabel('Text format', { exact: true }).selectOption('plain');
-    await page.getByLabel('Indentation', { exact: true }).selectOption({ label });
+    await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
     await page.clock.install();
     await page.clock.pauseAt(new Date());
     const input = page.getByRole('textbox', { name: 'Folder structure text' });
@@ -248,7 +248,7 @@ for (const [label, indent] of [['4 spaces', '    '], ['Tabs', '\t']] as const) {
     await expect(input).toHaveValue(raw);
     expect(await input.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(2);
     await page.reload();
-    await expect(page.getByLabel('Indentation', { exact: true })).toHaveValue(label === 'Tabs' ? 'tabs' : '4');
+    await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
     await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('plain');
     await expect(input).toHaveValue(raw);
     await expect(page.locator('.fs-preview-row')).toHaveCount(3);
@@ -362,9 +362,9 @@ test('groups a rapid text burst into a single undo step and restores it with red
   await page.clock.fastForward(1000);
   await waitForSavedModel(page, 'After');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(input).toHaveValue('Before\n  Original');
+  await expect(input).toHaveValue('Before\n    Original');
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await expect(input).toHaveValue('After\n  New\n  Final');
+  await expect(input).toHaveValue('After\n    New\n    Final');
 });
 
 test('waits until IME composition ends before applying text or allowing downloads', async ({ page }) => {
@@ -499,7 +499,7 @@ test('keeps syntax-like names created visually unchanged after refresh', async (
   await expect(page.locator('.fs-folder-name')).toHaveText(['- Notes', '├── Literal']);
   await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
   await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('plain');
-  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes\n  ├── Literal');
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes\n    ├── Literal');
   await page.getByLabel('Text format', { exact: true }).selectOption('auto');
   await page.reload();
   await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('auto');
@@ -518,5 +518,66 @@ for (const name of ['Project.ascii', 'Project.tree']) {
     const bytes = await readFile((await download.path())!);
     await importText(page, bytes.toString(), download.suggestedFilename());
     await expect(page.locator('.fs-folder-name')).toHaveText([name, 'Literal child']);
+  });
+}
+
+
+test('uses four spaces for generated text and the Tab key without an indentation setting', async ({ page }) => {
+  await importText(page, 'Root\n  Child\n    Grandchild');
+  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Folder structure text' });
+  await expect(input).toHaveValue('Root\n  Child\n    Grandchild');
+  await page.getByLabel('Text format', { exact: true }).selectOption('markdown');
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
+  await expect(input).toHaveValue('Root\n    Child\n        Grandchild');
+  await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
+  await input.fill('Root\n');
+  await input.press('End');
+  await input.press('Tab');
+  await input.pressSequentially('New child');
+  await expect(input).toHaveValue('Root\n    New child');
+  await waitForSavedModel(page, 'Root');
+  await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Root', 'New child']);
+});
+
+test('retains an unfinished legacy draft and its explicit indentation rule', async ({ page }) => {
+  await importText(page, 'Keep\n  Original');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Keep', 'Original']);
+  await page.evaluate(() => {
+    const key = 'folderseed:draft:v1';
+    const stored = JSON.parse(localStorage.getItem(key)!);
+    localStorage.setItem(key, JSON.stringify({ ...stored, draft: 'Root\n    Skipped level', pending: true, textFormat: 'plain', indent: 2, mode: 'text' }));
+  });
+  await page.reload();
+  await expect(page.locator('.fs-inline-error')).toContainText('Line 2');
+  await expect(page.locator('.fs-preview-root')).toContainText('Keep');
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('Root\n    Skipped level');
+  await expect(page.getByRole('button', { name: 'Download ZIP', exact: true })).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Root\n  Fixed');
+  await waitForSavedModel(page, 'Root');
+  await expect(page.locator('.fs-inline-error')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('Root\n  Fixed');
+});
+
+for (const [name, width, height] of [['desktop', 1440, 1080], ['narrow', 360, 800]] as const) {
+  test(`keeps the format control beside the editing modes or safely wrapped on ${name}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height });
+    await expect(page.getByLabel('Text format', { exact: true })).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    const toolbar = page.locator('.fs-editor-toolbar');
+    const control = toolbar.getByRole('combobox', { name: 'Text format', exact: true });
+    await control.selectOption('markdown');
+    await expect(control).toHaveValue('markdown');
+    await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const controlBox = (await control.boundingBox())!;
+    const tabsBox = (await toolbar.getByRole('tablist').boundingBox())!;
+    expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(width);
+    expect(controlBox.width).toBeGreaterThanOrEqual(132);
+    if (name === 'desktop') expect(Math.abs(controlBox.y - tabsBox.y)).toBeLessThanOrEqual(2);
+    else expect(controlBox.y).toBeGreaterThanOrEqual(tabsBox.y);
+    await page.screenshot({ path: testInfo.outputPath(`text-toolbar-${name}.png`), fullPage: true });
   });
 }

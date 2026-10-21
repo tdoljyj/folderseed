@@ -150,9 +150,9 @@ export async function createExport(input: DirectoryDocument, format: ExportForma
       return { filename, blob: new Blob([new Uint8Array(bytes)], { type: 'application/zip' }) };
     }
     case 'txt':
-      return { filename, blob: new Blob([formatText(document, 'plain') + '\n'], { type: 'text/plain;charset=utf-8' }) };
+      return { filename, blob: new Blob([formatText(document, 'plain', 4) + '\n'], { type: 'text/plain;charset=utf-8' }) };
     case 'md':
-      return { filename, blob: new Blob([formatText(document, 'markdown') + '\n'], { type: 'text/markdown;charset=utf-8' }) };
+      return { filename, blob: new Blob([formatText(document, 'markdown', 4) + '\n'], { type: 'text/markdown;charset=utf-8' }) };
     case 'ascii':
     case 'unicode':
       return { filename, blob: new Blob([formatText(document, format) + '\n'], { type: 'text/plain;charset=utf-8' }) };

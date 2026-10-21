@@ -1164,6 +1164,8 @@ test('bounds deep ancestor bands and removes drag-only destinations when a drag 
 test('keeps adjacent ancestor bands and their trailing whitespace free of dead drop gaps', async ({ page }) => {
   await importText(page, 'Project\n  Other\n  A\n    B\n      C\n        Leaf');
   await page.getByRole('button', { name: 'Collapse C', exact: true }).click();
+  // Keep the exact band boundary in the viewport before recording native pointer coordinates.
+  await page.locator('.fs-tree').scrollIntoViewIfNeeded();
   const x = await beginStraightDownFolderDrag(page, 'Other', 0.65);
   const first = bottomDropBand(page, 'B');
   const last = bottomDropBand(page, 'A');
@@ -1174,6 +1176,7 @@ test('keeps adjacent ancestor bands and their trailing whitespace free of dead d
   const zoneBox = (await page.locator('.fs-bottom-drop-zones').boundingBox())!;
   expect(firstBox.y + firstBox.height).toBeCloseTo(lastBox.y, 0);
   expect(lastBox.y + lastBox.height).toBeCloseTo(zoneBox.y + zoneBox.height, 0);
+  expect(lastBox.y + lastBox.height).toBeLessThan(page.viewportSize()!.height);
   await page.mouse.move(x, firstBox.y + firstBox.height - 1, { steps: 12 });
   await page.mouse.move(x + 1, firstBox.y + firstBox.height - 1);
   await expect(first).toHaveClass(/is-active/);

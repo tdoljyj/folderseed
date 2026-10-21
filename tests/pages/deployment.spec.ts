@@ -38,6 +38,14 @@ test('edits, reloads, and downloads every format from the production app', async
   await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await page.reload();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Pages test', 'Assets', 'Images', 'Notes']);
+  await page.locator('.fs-folder-select[title="Notes"]').click();
+  const actions = page.getByRole('group', { name: 'Folder actions for Notes', exact: true });
+  await expect(actions.getByRole('button')).toHaveCount(8);
+  await actions.getByRole('button', { name: 'Move into previous sibling', exact: true }).click();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Pages test/Assets/Notes');
+  await actions.getByRole('button', { name: 'Move to parent level', exact: true }).click();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Pages test/Notes');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Pages test', 'Assets', 'Images', 'Notes']);
   for (const [name, extension] of [['Folder ZIP', 'zip'], ['Plain text', 'txt'], ['Plain text', 'ascii'], ['Plain text', 'unicode'], ['Markdown', 'md'], ['Markdown', 'md-tree'], ['Project JSON', 'json'], ['Vector SVG', 'svg'], ['Image PNG', 'png']]) {
     await page.getByRole('radio', { name: new RegExp('^' + name) }).click();
     if (['txt', 'ascii', 'unicode'].includes(extension)) await page.getByLabel('Text export style', { exact: true }).selectOption(extension);

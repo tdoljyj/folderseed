@@ -19,7 +19,7 @@ async function importText(page: Page, text: string, name = 'structure.txt') {
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: name.endsWith('.json') ? 'application/json' : 'text/plain', buffer: Buffer.from(text) });
 }
 async function addFolder(page: Page, name: string) {
-  await page.getByRole('button', { name: /^Add folder/ }).click();
+  await page.getByRole('button', { name: 'Add child folder', exact: true }).click();
   await page.getByLabel('Folder name', { exact: true }).fill(name);
   await page.getByRole('dialog').getByRole('button', { name: 'Add folder', exact: true }).click();
 }
@@ -81,7 +81,7 @@ test('adds, renames, moves, reorders, deletes, and restores folders', async ({ p
 
 test('rejects duplicate and unsafe names without closing the edit dialog', async ({ page }) => {
   await importText(page, 'Project\n  Images');
-  await page.getByRole('button', { name: /^Add folder/ }).click();
+  await page.getByRole('button', { name: 'Add child folder', exact: true }).click();
   const input = page.getByLabel('Folder name', { exact: true });
   await input.fill('images');
   await page.getByRole('dialog').getByRole('button', { name: 'Add folder', exact: true }).click();
@@ -192,7 +192,7 @@ test('desktop and mobile layouts stay within the viewport without browser errors
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: true });
   }
-  await page.getByRole('button', { name: /^Add folder/ }).click();
+  await page.getByRole('button', { name: 'Add child folder', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -762,6 +762,8 @@ test('shows the insertion line after an expanded subtree while a real pointer dr
   const source = (await folderRow(page, 'Gamma').boundingBox())!;
   const target = (await folderRow(page, 'Alpha').boundingBox())!;
   const nested = (await folderRow(page, 'Nested').boundingBox())!;
+  const toolbar = page.locator('.fs-context-actions');
+  const toolbarBefore = (await toolbar.boundingBox())!;
   await page.mouse.move(source.x + source.width - 18, source.y + source.height / 2);
   await page.mouse.down();
   await page.mouse.move(source.x + source.width - 30, source.y + source.height / 2, { steps: 4 });
@@ -769,6 +771,14 @@ test('shows the insertion line after an expanded subtree while a real pointer dr
   await page.mouse.move(target.x + target.width - 19, target.y + target.height / 2);
   await expect(folderRow(page, 'Alpha')).toHaveClass(/is-drop-target/);
   await expect(page.locator('.fs-drop-line')).toHaveCount(0);
+  await expect(toolbar).toHaveAttribute('aria-label', 'Folder actions for Project');
+  await expect(toolbar).toHaveAttribute('aria-hidden', 'true');
+  for (const button of await toolbar.locator('button').all()) await expect(button).toBeDisabled();
+  const toolbarDuring = (await toolbar.boundingBox())!;
+  expect(toolbarDuring.y).toBeCloseTo(toolbarBefore.y, 0);
+  expect(toolbarDuring.height).toBeCloseTo(toolbarBefore.height, 0);
+  expect((await folderRow(page, 'Alpha').boundingBox())!.y).toBeCloseTo(target.y, 0);
+  expect((await folderRow(page, 'Nested').boundingBox())!.y).toBeCloseTo(nested.y, 0);
   await page.screenshot({ path: testInfo.outputPath('drag-nest-inside.png'), fullPage: true });
   await page.mouse.move(target.x + target.width - 20, target.y + target.height - 2, { steps: 4 });
   await page.mouse.move(target.x + target.width - 19, target.y + target.height - 2);
@@ -1049,7 +1059,15 @@ for (const widthRatio of [0.35, 0.65, 0.9]) {
     await expect(folderRow(page, 'Drafts')).toHaveCount(0);
     await expect(folderRow(page, 'Assets')).toHaveCount(0);
     await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(0);
+    // Also exercise the selected final folder, whose action group sits below its row.
+    if (widthRatio === 0.65) await selectFolder(page, sourceName);
+    const sourceBeforeDrag = (await folderRow(page, sourceName).boundingBox())!;
     const x = await beginStraightDownFolderDrag(page, sourceName, widthRatio);
+    if (widthRatio === 0.65) {
+      await expect(page.locator('.fs-context-actions')).toHaveAttribute('aria-label', `Folder actions for ${sourceName}`);
+      await expect(page.locator('.fs-context-actions')).toHaveAttribute('aria-hidden', 'true');
+      expect((await folderRow(page, sourceName).boundingBox())!.y).toBeCloseTo(sourceBeforeDrag.y, 0);
+    }
     await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(1);
     await hoverBottomBandVertically(page, x, '03 Final delivery');
     const tree = (await page.locator('.fs-tree').boundingBox())!;
@@ -1170,4 +1188,138 @@ test('keeps adjacent ancestor bands and their trailing whitespace free of dead d
   await page.mouse.up();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Leaf', 'Other']);
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Other');
+});
+
+const folderActionNames = ['Move up', 'Move down', 'Move to parent level', 'Move into previous sibling', 'Add sibling folder', 'Add child folder', 'Rename', 'Delete folder'];
+const folderActions = (page: Page, name: string) => page.getByRole('group', { name: `Folder actions for ${name}`, exact: true });
+
+async function expectEightFolderActions(page: Page, name: string) {
+  const actions = folderActions(page, name);
+  await expect(page.getByRole('group', { name: /^Folder actions for / })).toHaveCount(1);
+  await expect(actions.getByRole('button')).toHaveCount(8);
+  for (const actionName of folderActionNames) {
+    const button = actions.getByRole('button', { name: actionName, exact: true });
+    await expect(button).toBeVisible();
+    await expect(button.locator('svg')).toHaveCount(1);
+  }
+  return actions;
+}
+
+test('shows eight named icon actions only for the selected folder and protects root operations', async ({ page }) => {
+  await importText(page, 'Project\n  Alpha\n  Beta');
+  await selectFolder(page, 'Project');
+  const rootActions = await expectEightFolderActions(page, 'Project');
+  for (const name of ['Move up', 'Move down', 'Move to parent level', 'Move into previous sibling', 'Add sibling folder', 'Delete folder']) {
+    await expect(rootActions.getByRole('button', { name, exact: true })).toBeDisabled();
+  }
+  await expect(rootActions.getByRole('button', { name: 'Add child folder', exact: true })).toBeEnabled();
+  await expect(rootActions.getByRole('button', { name: 'Rename', exact: true })).toBeEnabled();
+  await expect(page.locator('.fs-add-folder')).toHaveCount(0);
+  await selectFolder(page, 'Alpha');
+  const firstActions = await expectEightFolderActions(page, 'Alpha');
+  await expect(rootActions).toHaveCount(0);
+  for (const name of ['Move up', 'Move to parent level', 'Move into previous sibling']) {
+    await expect(firstActions.getByRole('button', { name, exact: true })).toBeDisabled();
+  }
+  await expect(firstActions.getByRole('button', { name: 'Move down', exact: true })).toBeEnabled();
+  await selectFolder(page, 'Beta');
+  const lastActions = await expectEightFolderActions(page, 'Beta');
+  await expect(lastActions.getByRole('button', { name: 'Move down', exact: true })).toBeDisabled();
+  await expect(lastActions.getByRole('button', { name: 'Move up', exact: true })).toBeEnabled();
+  await expect(lastActions.getByRole('button', { name: 'Move into previous sibling', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Move', exact: true })).toHaveCount(1);
+});
+
+test('adds a sibling immediately after the selected folder and expands a collapsed folder for its new child', async ({ page }) => {
+  await importText(page, 'Project\n  Alpha\n    Existing\n  Beta');
+  await selectFolder(page, 'Alpha');
+  await folderActions(page, 'Alpha').getByRole('button', { name: 'Add sibling folder', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('At the same level as Alpha, immediately after it.');
+  await page.getByLabel('Folder name', { exact: true }).fill('Inserted');
+  await dialog.getByRole('button', { name: 'Add folder', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Existing', 'Inserted', 'Beta']);
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Inserted');
+  await expectEightFolderActions(page, 'Inserted');
+  await page.getByRole('button', { name: 'Collapse Alpha', exact: true }).click();
+  await selectFolder(page, 'Alpha');
+  await expect(folderRow(page, 'Existing')).toHaveCount(0);
+  await addFolder(page, 'New child');
+  await expect(page.getByRole('button', { name: 'Collapse Alpha', exact: true })).toBeVisible();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Existing', 'New child', 'Inserted', 'Beta']);
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Alpha/New child');
+  await expectEightFolderActions(page, 'New child');
+});
+
+test('indents and outdents complete subtrees with predictable ordering, undo, and saved reloads', async ({ page }) => {
+  const original = ['Project', 'Parent', 'Before', 'Moving', 'Leaf', 'Later', 'After'];
+  await importText(page, 'Project\n  Parent\n    Before\n    Moving\n      Leaf\n    Later\n  After');
+  await selectFolder(page, 'Moving');
+  await folderActions(page, 'Moving').getByRole('button', { name: 'Move to parent level', exact: true }).click();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Moving');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
+  await expect(folderActions(page, 'Moving').getByRole('button', { name: 'Move to parent level', exact: true })).toBeDisabled();
+  await folderActions(page, 'Moving').getByRole('button', { name: 'Move into previous sibling', exact: true }).click();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Parent/Moving');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Moving');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Parent/Moving');
+  await expect(page.locator('.fs-folder-name')).toHaveText(original);
+  await page.keyboard.press('Control+Shift+z');
+  await page.keyboard.press('Control+Shift+z');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Parent/Moving');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
+  await folderActions(page, 'Moving').getByRole('button', { name: 'Move to parent level', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document?.root?.children?.map((child: { name: string }) => child.name))).toEqual(['Parent', 'Moving', 'After']);
+  await page.reload();
+  await selectFolder(page, 'Leaf');
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Moving/Leaf');
+  const zip = await downloadFormat(page, 'Folder ZIP', 'zip');
+  expect(Object.keys(unzipSync(zip))).toEqual(['Project/', 'Project/Parent/', 'Project/Parent/Before/', 'Project/Parent/Later/', 'Project/Moving/', 'Project/Moving/Leaf/', 'Project/After/']);
+});
+
+test('keeps all selected-folder actions inline on a wide desktop beside a long name', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 2000, height: 1200 });
+  const longName = 'Client deliverables — approved photography and campaign artwork';
+  await importText(page, `Project\n  Alpha\n  ${longName}\n    Working files\n  Omega`);
+  await selectFolder(page, longName);
+  const actions = await expectEightFolderActions(page, longName);
+  const nameBox = (await folderRow(page, longName).locator('.fs-folder-select').boundingBox())!;
+  const actionsBox = (await actions.boundingBox())!;
+  expect(Math.abs(nameBox.y + nameBox.height / 2 - actionsBox.y - actionsBox.height / 2)).toBeLessThanOrEqual(2);
+  expect(actionsBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('selected-folder-actions-desktop.png'), fullPage: true });
+});
+
+test('keeps eight selected-folder actions in a touch-sized four-by-two grid at 360 pixels', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 900 });
+  const longName = 'Client deliverables — approved photography and campaign artwork';
+  await importText(page, `Project\n  Alpha\n  ${longName}\n    Working files\n  Omega`);
+  await selectFolder(page, longName);
+  const actions = await expectEightFolderActions(page, longName);
+  await actions.scrollIntoViewIfNeeded();
+  const boxes = await actions.getByRole('button').evaluateAll(buttons => buttons.map(button => {
+    const { x, y, width, height } = button.getBoundingClientRect();
+    return { x, y, width, height };
+  }));
+  for (const box of boxes) {
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(360);
+  }
+  expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(4);
+  expect(new Set(boxes.map(box => Math.round(box.y))).size).toBe(2);
+  const nameBox = (await folderRow(page, longName).locator('.fs-folder-select').boundingBox())!;
+  expect(boxes[0].y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await page.locator('.fs-tree').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('selected-folder-actions-mobile.png'), fullPage: true });
+  await actions.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.getByLabel('Folder name', { exact: true }).fill('Approved deliverables');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Approved deliverables');
 });

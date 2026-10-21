@@ -62,7 +62,7 @@ export function renderSVG(input: DirectoryDocument): { svg: string; width: numbe
 <desc id="description">${escapeXML(formatTree(document))}</desc>
 <rect width="${width}" height="${height}" fill="#f8fafc"/>
 <g font-family="${FONT}">
-<text x="32" y="35" font-size="11" font-weight="700" letter-spacing="1.8" fill="#315d98">FOLDERSEED · DIRECTORY STRUCTURE</text>
+<text x="32" y="35" font-size="11" font-weight="700" letter-spacing="1.8" fill="#365fa8">FOLDERSEED · DIRECTORY STRUCTURE</text>
 <text x="32" y="60" font-size="13" fill="#596579">${rows.length} ${rows.length === 1 ? 'folder' : 'folders'} · Folder-only layout</text>
 <path d="M 32 78 H ${width - 32}" stroke="#dbe2ec"/>
 <g fill="none" stroke="#c5d0df" stroke-width="1.5">${lines.join('')}</g>

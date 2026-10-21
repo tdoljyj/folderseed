@@ -10,6 +10,7 @@ No account, backend, API key, or command-line knowledge is needed to use the edi
 
 - Add, rename, delete, reorder, and move folders in a visual editor.
 - Undo and redo changes, start from a template, and keep a local draft between visits.
+- Choose System, Light, or Dark appearance without changing your folder draft.
 - Edit plain outlines, Markdown lists, or ASCII/Unicode trees. Pasted and imported text supports **2 spaces, 4 spaces, or tabs**. Generated outlines use four spaces; there is no indentation setting to configure.
 - See valid text changes in the preview immediately; the folder model updates automatically after a short pause. Invalid input is reported instead of silently flattening your structure.
 - Import text, Markdown, or a versioned JSON document.
@@ -25,6 +26,12 @@ Drag a folder to the **top or bottom edge of a row** to insert it before or afte
 No dragging is required. Selecting a folder reveals eight action icons: **Move up**, **Move down**, **Move to parent level**, **Move into previous sibling**, **Add sibling folder**, **Add child folder**, **Rename**, and **Delete folder**. Moving to the parent level places the whole subtree immediately after its former parent; moving inward appends it inside the preceding sibling. Add sibling inserts immediately after selection, while Add child opens the selected folder if it was collapsed. Unavailable actions are disabled: the root cannot move, gain a sibling, or be deleted, and a first sibling has no preceding folder to move into. The toolbar sits beside the row where there is room, below it on compact layouts, and uses two rows of touch-sized controls on mobile. For any other destination, use the single **Move** action beside the selected path and choose a **New parent folder** and **Position**. All controls are keyboard accessible, have descriptive labels/tooltips, and keep core name/depth safeguards. Moves keep the subtree together, support Undo/Redo, and preserve the displayed order in autosaved drafts and exports.
 
 With focus in the editor, use **Ctrl+Z** (Mac: **Cmd+Z**) to undo visual changes, including drag reordering. Redo with **Ctrl/Cmd+Shift+Z** or **Ctrl+Y**. Text fields and editable content keep their native text undo; document shortcuts are paused in dialogs and during input-method composition. Shortcuts do not capture keys from controls outside an embedded FolderSeed editor.
+
+## Appearance
+
+Open the **FolderSeed** menu at the bottom of the sidebar, then choose **Settings**. On smaller screens, use the settings button in the workspace header. **System** follows your device appearance and reacts to changes automatically; **Light** and **Dark** stay fixed until you choose otherwise. Changes apply immediately.
+
+The preference is saved separately from your folder draft, under `folderseed:theme:v1`. Changing appearance does not apply, discard, or alter unfinished text. If browser storage is blocked, the setting still works for the current session and Settings shows a session-only notice. Themes affect the editor, not the exported folder structure or a surrounding host application.
 
 ## Choose the right export
 
@@ -240,13 +247,14 @@ export function ProjectFolders() {
     <FolderEditor
       initialDocument={initialDocument}
       storageKey={false}
+      themeStorageKey={false}
       onChange={(document) => console.log(document)}
     />
   );
 }
 ```
 
-`initialDocument` initializes the editor; it is not a continuously controlled value. `onChange` receives the initialized document and valid committed changes, including automatically committed text edits. It does not receive invalid text or raw drafts. Set `storageKey={false}` when the host owns persistence, or pass a unique string to isolate drafts between projects. The standalone app uses `folderseed:draft:v1`.
+`initialDocument` initializes the editor; it is not a continuously controlled value. `onChange` receives the initialized document and valid committed changes, including automatically committed text edits. It does not receive invalid text or raw drafts. Set `storageKey={false}` when the host owns persistence, or pass a unique string to isolate drafts between projects. The standalone app uses `folderseed:draft:v1`. Appearance has its own `themeStorageKey` prop: pass a separate string to isolate its preference, or `false` to keep it only in memory. Disabling draft persistence does not implicitly disable theme persistence.
 
 See [the embedding example](examples/embedding.tsx) and [architecture notes](docs/architecture.md) for the data model, integration boundaries, and export helper. With `npm run dev` running, open `/examples/index.html` on the local dev server for a working host-owned editor example. This example is a development route, not a separate deployed service.
 

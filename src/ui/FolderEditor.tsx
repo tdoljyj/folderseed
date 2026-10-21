@@ -3,6 +3,8 @@ import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, par
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
 import { FormatSwitch } from './FormatSwitch';
+import { AppMenu, SettingsDialog } from './Settings';
+import { useTheme } from './theme';
 import { bottomAncestorTargets, dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from './dragDrop';
 import { historyReducer, historyShortcut } from './history';
 import { addSiblingFolder, indentFolder, outdentFolder } from './folderActions';
@@ -14,6 +16,8 @@ export interface FolderEditorProps {
   onChange?: (document: DirectoryDocument) => void;
   /** Set a unique key per instance, or false to disable browser draft persistence. */
   storageKey?: string | false;
+  /** Independent appearance preference; false keeps theme changes in this session only. */
+  themeStorageKey?: string | false;
 }
 type Modal = { kind: 'add'; id: string; afterId?: string } | { kind: 'rename' | 'delete' | 'move'; id: string } | { kind: 'template'; index: number };
 const formats: { id: ExportFormat; title: string; description: string; icon: string }[] = [
@@ -75,7 +79,10 @@ function sameStructure(first: DirectoryDocument, second: DirectoryDocument): boo
   return formatIndented(first) === formatIndented(second);
 }
 
-export function FolderEditor({ initialDocument, onChange, storageKey = 'folderseed:draft:v1' }: FolderEditorProps) {
+export function FolderEditor({ initialDocument, onChange, storageKey = 'folderseed:draft:v1', themeStorageKey = 'folderseed:theme:v1' }: FolderEditorProps) {
+  const theme = useTheme(themeStorageKey);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTrigger = useRef<HTMLButtonElement | null>(null);
   const [initial] = useState(() => loadInitial(initialDocument, storageKey));
   const [history, dispatch] = useReducer(historyReducer, { past: [], present: initial.document, future: [] });
   const doc = history.present;
@@ -197,6 +204,15 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     return () => window.removeEventListener('beforeunload', warn);
   }, [textDirty]);
 
+  function openSettings(trigger: HTMLButtonElement | null) { settingsTrigger.current = trigger; setSettingsOpen(true); }
+  function closeSettings() {
+    setSettingsOpen(false);
+    requestAnimationFrame(() => {
+      const origin = settingsTrigger.current;
+      const target = origin?.getClientRects().length ? origin : [...(appRef.current?.querySelectorAll<HTMLButtonElement>('.fs-app-menu-trigger') ?? [])].find(button => button.getClientRects().length);
+      target?.focus();
+    });
+  }
   function notify(message: string, error = false) { setNotice(message); setNoticeError(error); }
   function editorText(next: DirectoryDocument, chosenFormat = textFormat) {
     let outputFormat = chosenFormat;
@@ -278,7 +294,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     dispatch({ type }); replaceEditorText(next.present); setTextDirty(false); setIndent('auto'); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
   }
   function handleHistoryKey(event: KeyboardEvent<HTMLDivElement>) {
-    if (modal || blockedDraft || composingRef.current || event.defaultPrevented) return;
+    if (modal || settingsOpen || blockedDraft || composingRef.current || event.defaultPrevented) return;
     const target = event.target;
     if (target instanceof Element && (target.closest('input, textarea, select, [role="textbox"]') || (target instanceof HTMLElement && target.isContentEditable))) return;
     const action = historyShortcut(event.nativeEvent);
@@ -441,13 +457,14 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const destinationChildren = rows.find(row => row.node.id === destination)?.node.children.filter(child => child.id !== modalRow?.node.id) ?? [];
   const descendants = modalRow ? new Set(flatten({ version: 1, root: modalRow.node }).map(row => row.node.id)) : new Set<string>();
 
-  return <div className="fs-app" ref={appRef} onKeyDown={handleHistoryKey}>
+  return <div className="fs-app" data-theme={theme.resolvedTheme} data-theme-preference={theme.preference} ref={appRef} onKeyDown={handleHistoryKey}>
     <aside className="fs-sidebar">
       <a className="fs-brand" href="#workspace" aria-label="FolderSeed workspace"><span className="fs-brand-mark"><Icon name="seed" size={26}/></span><span><span className="fs-brand-name">FolderSeed</span><span className="fs-brand-subtitle">A little structure goes a long way.</span></span></a>
       <div className="fs-sidebar-section"><span className="fs-eyebrow">YOUR WORKSPACE</span><a className="fs-nav-active" href="#workspace"><Icon name="tree"/>Folder builder<span className="fs-nav-dot"/></a></div>
       <div className="fs-sidebar-section fs-templates"><span className="fs-eyebrow">A PLACE TO START</span><p>Skip the blank canvas.</p>{templates.map((template, index) => <button key={template.id} type="button" className="fs-template" disabled={blockedDraft} onClick={() => openModal({ kind: 'template', index })}><span className={`fs-template-icon color-${index}`}><Icon name={template.icon}/></span><span><strong>{template.name}</strong><small>{template.description}</small></span><Icon name="chevron" size={13}/></button>)}</div>
       <div className="fs-privacy-card"><span className="fs-privacy-icon"><Icon name="shield" size={22}/></span><strong>Your folders. Your device.</strong><p>Your folder drafts and exports stay in your browser. No accounts or app analytics.</p><span className="fs-local-badge"><span/>LOCAL-FIRST BY DESIGN</span></div>
-      <div className="fs-sidebar-footer">Made for fresh starts.<span>FolderSeed · v0.1</span></div>
+      <div className="fs-sidebar-footer">Made for fresh starts.<AppMenu onSettings={openSettings}/></div>
+      <AppMenu mobile onSettings={openSettings}/>
     </aside>
     <main className="fs-main" id="workspace">
       <header className="fs-topbar"><span className="fs-breadcrumb">Workspace <Icon name="chevron" size={12}/> Folder builder</span><span className="fs-save-state"><span className={blockedDraft || saveState.startsWith('Draft not') ? 'warning' : ''}/>{statusLabel}</span></header>
@@ -509,6 +526,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
       {notice && <div className={`fs-notice ${noticeError ? 'is-error' : ''}`} role={noticeError ? 'alert' : 'status'}><Icon name={noticeError ? 'info' : 'check'} size={17}/><span>{notice}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice('')}><Icon name="close" size={16}/></button></div>}
       <footer className="fs-footer"><span>Small beginnings. Well-organized possibilities.</span><span><Icon name="shield" size={13}/>Your structure never leaves this browser.</span></footer>
     </main>
+    {settingsOpen && <SettingsDialog preference={theme.preference} storageWarning={theme.storageWarning} onPreferenceChange={theme.setPreference} onClose={closeSettings}/>}
     {modal && <dialog ref={dialog} className="fs-dialog" aria-labelledby="folderseed-dialog-title" onCancel={closeModal} onClick={event => { if (event.target === event.currentTarget) closeModal(); }}><form onSubmit={submitModal}><div className="fs-dialog-top"><span className="fs-dialog-icon"><Icon name={modal.kind === 'delete' ? 'trash' : modal.kind === 'move' ? 'move' : 'folder'} size={25}/></span><button type="button" aria-label="Close dialog" className="fs-icon-button" onClick={closeModal}><Icon name="close"/></button></div><h2 id="folderseed-dialog-title">{modalTitle}</h2>{modal.kind === 'add' || modal.kind === 'rename' ? <><p>{modal.kind === 'add' ? modal.afterId ? `At the same level as ${rows.find(row => row.node.id === modal.afterId)?.node.name}, immediately after it.` : `Inside ${modalRow?.path}` : `Rename ${modalRow?.node.name}. Its contents stay together.`}</p><label htmlFor="folder-name">Folder name</label><input id="folder-name" ref={nameInput} value={name} onChange={event => { setName(event.target.value); setModalError(''); }} placeholder="e.g. Ideas, Photos, First drafts" maxLength={200} required autoComplete="off"/><small>Use a name, not a path. Avoid / \ : * ? &quot; &lt; &gt; |</small></> : modal.kind === 'delete' ? <p>Remove <strong>{modalRow?.node.name}</strong>{descendants.size > 1 ? ` and its ${descendants.size - 1} nested folders` : ''}? This only changes your plan, not folders on your device. You can undo it.</p> : modal.kind === 'move' ? <><p>Move <strong>{modalRow?.node.name}</strong> and everything inside it.</p><label htmlFor="destination">New parent folder</label><select id="destination" value={destination} onChange={event => { setDestination(event.target.value); setDestinationBefore('end'); }}>{rows.filter(row => !descendants.has(row.node.id)).map(row => <option key={row.node.id} value={row.node.id}>{row.path}</option>)}</select><label htmlFor="destination-position">Position</label><select id="destination-position" value={destinationBefore} onChange={event => setDestinationBefore(event.target.value)}><option value="end">At the end</option>{destinationChildren.map(child => <option key={child.id} value={child.id}>Before {child.name}</option>)}</select></> : <p>This will replace the current plan with a fresh template. You can use Undo to bring your previous structure back.</p>}{modalError && <div className="fs-inline-error" role="alert">{modalError}</div>}<div className="fs-dialog-actions"><button type="button" className="fs-button" onClick={closeModal}>Cancel</button><button type="submit" className={`fs-button ${modal.kind === 'delete' ? 'fs-danger' : 'fs-primary'}`}>{modal.kind === 'add' ? 'Add folder' : modal.kind === 'rename' ? 'Save name' : modal.kind === 'delete' ? 'Remove folder' : modal.kind === 'move' ? 'Move folder' : 'Use template'}</button></div></form></dialog>}
   </div>;
 }

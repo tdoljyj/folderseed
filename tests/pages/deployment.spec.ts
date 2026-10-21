@@ -24,6 +24,14 @@ test('serves every production asset below the Pages project path', async ({ page
     expect(assets.some(url => new URL(url).pathname.endsWith(extension))).toBe(true);
   }
   expect(assets.every(url => new URL(url).pathname.startsWith('/folderseed/'))).toBe(true);
+  await page.getByRole('button', { name: 'Open FolderSeed menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await expect(page.locator('.fs-app')).toHaveAttribute('data-theme', 'dark');
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await page.reload();
+  await expect(page.locator('.fs-app')).toHaveAttribute('data-theme-preference', 'dark');
+  await expect(page.locator('.fs-app')).toHaveAttribute('data-theme', 'dark');
   expect(failures).toEqual([]);
 });
 

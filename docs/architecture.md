@@ -103,6 +103,7 @@ interface FolderEditorProps {
   initialDocument?: DirectoryDocument;
   onChange?: (document: DirectoryDocument) => void;
   storageKey?: string | false;
+  themeStorageKey?: string | false;
 }
 ```
 
@@ -124,13 +125,23 @@ Export, copy, and transitions to visual editing flush valid pending text before 
 
 Debounced typing bursts are history steps. Pending timers must not commit stale text after a newer edit, undo/redo, import, or other document replacement. Undo history is in-memory and is not restored after a reload.
 
-Styles use the `.fs-app` root and namespaced `.fs-*` classes; import `src/ui/style.css` for source integration or `folderseed/styles.css` for the built package once in the host. The source example in `examples/embedding.tsx` disables browser persistence and keeps a host-level snapshot.
+Styles use the `.fs-app` root and namespaced `.fs-*` classes; import `src/ui/style.css` for source integration or `folderseed/styles.css` for the built package once in the host. The source example in `examples/embedding.tsx` disables draft persistence and keeps a host-level snapshot; appearance persistence is configured independently.
 
 Legacy automatic-format drafts are migrated by `restoreTextFormat` only if an explicit parser yields the same tree. For committed drafts, the saved document is authoritative; for pending drafts, the old parser must succeed first. Invalid automatic drafts retain their raw source and internal parsing rule with the default Plain text label. Clicking that label only enters editing and does not reinterpret the draft; choosing a menu item explicitly changes its parser. Automatic format detection remains available to file imports and the core API, but is not an editor option.
 
 The format menu implements arrow/Home/End/typeahead navigation, Enter/Space activation, Escape focus restoration, normal Tab dismissal, and outside pointer/focus dismissal. It is closed rather than activated during input-method composition.
 
 Document shortcuts are handled on the editor root, not on `window` or `document`. Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (plus Ctrl+Y) invoke the same history actions as the buttons. Inputs, textareas, selects, editable content, dialogs, and composing events are excluded. Completed or cancelled drags return focus to the dragged folder so keyboard history works immediately; unrelated host controls remain outside the event scope.
+
+### Appearance and settings
+
+`themeStorageKey` defaults to `folderseed:theme:v1`, independently of `storageKey`. It stores a raw `system`, `light`, or `dark` string rather than changing the versioned document or draft schema. An absent or unrecognized value falls back to System. Pass a different key for an isolated embedded preference, or `false` to avoid reading and writing appearance storage. Theme changes do not create history steps, invoke `onChange`, or flush an invalid text draft.
+
+System resolves through `matchMedia('(prefers-color-scheme: dark)')` and follows live changes. Manual Light/Dark preferences ignore those changes. If media-query APIs are unavailable, System safely resolves to light; manual choices still work. Storage failures preserve an in-memory preference and show a session-only notice rather than blocking editing.
+
+The resolved appearance and preference are exposed only on the editor wrapper as `data-theme` and `data-theme-preference`. Theme selectors and color-scheme styling stay scoped to `.fs-app`; the editor does not rewrite host `html`/`body` classes, styles, or attributes. The folder model and exported document are appearance-independent.
+
+The bottom sidebar menu and its responsive header counterpart open the same Settings dialog. Menu keyboard navigation, Escape, Tab, and outside dismissal are supported. The native modal focuses the checked theme radio, supports arrow-key selection, contains keyboard focus, and returns focus to a visible menu trigger when dismissed, including after a viewport change. Closing Settings never requires saving a second time.
 
 ### Persistence
 

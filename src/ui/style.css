@@ -2076,3 +2076,574 @@
   .fs-context-actions button { width: 100%; min-width: 44px; height: 44px; }
   .fs-advanced-move { min-height: 38px; }
 }
+
+/* App settings stay inside the editor; themes never change the host page. */
+.fs-app {
+  --fs-settings-surface: #fff;
+  --fs-settings-hover: #f0f3f8;
+  --fs-settings-border: #dcdce3;
+  --fs-settings-selected: #edf4ff;
+  --fs-settings-accent: #0055b3;
+  --fs-settings-shadow: 0 10px 32px #172c4d24;
+}
+.fs-app[data-theme='light'] {
+  color-scheme: light;
+}
+.fs-app .fs-app-menu {
+  position: relative;
+  min-width: 0;
+}
+.fs-app .fs-app-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--fs-muted);
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.fs-app .fs-app-menu-trigger > span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: inherit;
+}
+.fs-app .fs-app-menu-trigger:hover:not(:disabled),
+.fs-app .fs-app-menu-trigger[aria-expanded='true'] {
+  border-color: var(--fs-settings-border);
+  color: var(--fs-ink);
+  background: var(--fs-settings-surface);
+}
+.fs-app .fs-app-menu-popover {
+  position: absolute;
+  z-index: 80;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 200px;
+  max-width: calc(100vw - 32px);
+  padding: 5px;
+  border: 1px solid var(--fs-settings-border);
+  border-radius: 10px;
+  color: var(--fs-ink);
+  background: var(--fs-settings-surface);
+  box-shadow: var(--fs-settings-shadow);
+}
+.fs-app .fs-app-menu-popover button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+.fs-app .fs-app-menu-popover button:hover:not(:disabled) {
+  color: var(--fs-settings-accent);
+  background: var(--fs-settings-hover);
+}
+.fs-app .fs-app-menu-popover button:focus-visible {
+  outline-offset: -2px;
+}
+.fs-app .fs-app-menu-mobile {
+  display: none;
+}
+.fs-app .fs-settings-dialog {
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.fs-app .fs-settings-dialog .fs-dialog-top {
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.fs-app .fs-settings-heading {
+  min-width: 0;
+  margin: 22px 0 0;
+  color: var(--fs-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.fs-app .fs-settings-dialog .fs-icon-button,
+.fs-app .fs-settings-dialog .fs-button {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+}
+.fs-app .fs-theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  min-width: 0;
+  margin: 12px 0 0;
+}
+.fs-app .fs-theme-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 88px;
+  padding: 14px 8px;
+  border: 1px solid var(--fs-settings-border);
+  border-radius: 10px;
+  color: var(--fs-muted);
+  background: var(--fs-settings-surface);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.fs-app .fs-theme-options button:hover:not(:disabled) {
+  border-color: var(--fs-primary);
+  color: var(--fs-ink);
+  background: var(--fs-settings-hover);
+}
+.fs-app .fs-theme-options button[aria-checked='true'] {
+  border-color: var(--fs-primary);
+  color: var(--fs-settings-accent);
+  background: var(--fs-settings-selected);
+  box-shadow: inset 0 0 0 1px var(--fs-primary);
+  font-weight: 600;
+}
+.fs-app .fs-settings-dialog .fs-theme-description {
+  margin: 14px 0 0;
+  color: var(--fs-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.fs-app .fs-settings-dialog .fs-settings-storage-note {
+  margin: 20px 0 0;
+  padding-top: 15px;
+  border-top: 1px solid var(--fs-line);
+  color: var(--fs-muted);
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+/* Dark mode overrides surfaces as well as text; the approved light palette is unchanged. */
+.fs-app[data-theme='dark'] {
+  --fs-ink: #edf0f7;
+  --fs-muted: #aeb7c6;
+  --fs-primary: #1970cf;
+  --fs-primary-dark: #1a65b8;
+  --fs-line: #39414e;
+  --fs-paper: #1c1f26;
+  --fs-surface: #14161b;
+  --fs-selection: #203b5d;
+  --fs-settings-surface: #252a33;
+  --fs-settings-hover: #303847;
+  --fs-settings-border: #465162;
+  --fs-settings-selected: #203b5d;
+  --fs-settings-accent: #b6d5ff;
+  --fs-settings-shadow: 0 12px 36px #0007;
+  color-scheme: dark;
+  color: var(--fs-ink);
+  background: var(--fs-surface);
+}
+.fs-app[data-theme='dark'] .fs-sidebar {
+  background: #191c22;
+  border-color: var(--fs-line);
+}
+.fs-app[data-theme='dark'] :is(.fs-panel, .fs-dialog) {
+  color: var(--fs-ink);
+  background: var(--fs-paper);
+  border-color: var(--fs-line);
+  box-shadow: 0 8px 30px #0002;
+}
+.fs-app[data-theme='dark'] :is(.fs-topbar, .fs-panel-heading, .fs-preview-toolbar, .fs-preview-stats, .fs-selection-summary) {
+  border-color: var(--fs-line);
+}
+.fs-app[data-theme='dark'] :is(
+  .fs-brand-subtitle, .fs-eyebrow, .fs-templates > p, .fs-template,
+  .fs-template small, .fs-template > svg, .fs-privacy-icon, .fs-privacy-card p,
+  .fs-local-badge, .fs-sidebar-footer, .fs-breadcrumb, .fs-breadcrumb svg,
+  .fs-save-state, .fs-heading p, .fs-heading .fs-eyebrow, .fs-step,
+  .fs-history button, .fs-icon-button, .fs-tree-help, .fs-tree-help > span:last-child,
+  .fs-disclosure, .fs-disclosure-placeholder, .fs-row-count, .fs-drag-hint,
+  .fs-add-folder > span, .fs-selected-path, .fs-empty-hint, .fs-live-badge,
+  .fs-copy, .fs-preview-root-badge, .fs-preview-stats, .fs-preview-stats strong,
+  .fs-format-icon, .fs-export-options small, .fs-export-heading p,
+  .fs-export-bottom p, .fs-export-bottom strong, .fs-footer, .fs-text-guide,
+  .fs-export-subtype, .fs-mobile-templates, .fs-dialog p, .fs-dialog label,
+  .fs-dialog small, .fs-theme-description, .fs-settings-storage-note
+) {
+  color: var(--fs-muted);
+}
+.fs-app[data-theme='dark'] :is(.fs-template strong, .fs-privacy-card strong, .fs-export-options strong, .fs-preview-root, .fs-text-preview) {
+  color: var(--fs-ink);
+}
+.fs-app[data-theme='dark'] .fs-nav-active {
+  color: #b6d5ff!important;
+  background: #20344f;
+  border-color: #345477;
+}
+.fs-app[data-theme='dark'] .fs-nav-dot {
+  background: #8bbdff;
+}
+.fs-app[data-theme='dark'] .fs-template:hover:not(:disabled) {
+  background: #282e38;
+}
+.fs-app[data-theme='dark'] .fs-template-icon {
+  color: #adcaff;
+  background: #253651;
+  border-color: #3d5375;
+}
+.fs-app[data-theme='dark'] .fs-template-icon.color-1 {
+  color: #ebc98e;
+  background: #403523;
+  border-color: #625139;
+}
+.fs-app[data-theme='dark'] .fs-template-icon.color-2 {
+  color: #c3c5ff;
+  background: #30324d;
+  border-color: #4b4f70;
+}
+.fs-app[data-theme='dark'] .fs-template-icon.color-3 {
+  color: var(--fs-muted);
+  background: transparent;
+  border-color: #465162;
+}
+.fs-app[data-theme='dark'] .fs-privacy-card {
+  background: #22262f;
+  border-color: var(--fs-line);
+}
+.fs-app[data-theme='dark'] :is(.fs-local-badge > span, .fs-save-state > span, .fs-live-badge > span) {
+  background: #7ddbb0;
+}
+.fs-app[data-theme='dark'] .fs-live-badge > span {
+  box-shadow: 0 0 0 3px #293b34;
+}
+.fs-app[data-theme='dark'] .fs-live-badge.is-paused {
+  color: #ffd18a;
+}
+.fs-app[data-theme='dark'] :is(.fs-save-state > span.warning, .fs-live-badge.is-paused > span) {
+  background: #ffd18a;
+}
+.fs-app[data-theme='dark'] :where(.fs-button, .fs-advanced-move, .fs-tool-buttons button) {
+  color: #dce2ec;
+  background: #272d37;
+  border-color: #465162;
+  box-shadow: none;
+}
+.fs-app[data-theme='dark'] :where(.fs-button, .fs-advanced-move, .fs-tool-buttons button):hover:not(:disabled) {
+  color: var(--fs-ink);
+  background: #333c4a;
+  border-color: #61718a;
+}
+.fs-app[data-theme='dark'] .fs-primary {
+  color: #fff;
+  background: var(--fs-primary);
+  border-color: var(--fs-primary);
+}
+.fs-app[data-theme='dark'] .fs-primary:hover:not(:disabled) {
+  color: #fff;
+  background: var(--fs-primary-dark);
+  border-color: var(--fs-primary-dark);
+}
+.fs-app[data-theme='dark'] .fs-danger {
+  color: #fff;
+  background: #b93432;
+  border-color: #b93432;
+}
+.fs-app[data-theme='dark'] .fs-danger:hover:not(:disabled) {
+  color: #fff;
+  background: #9e2b2a;
+  border-color: #9e2b2a;
+}
+.fs-app[data-theme='dark'] :is(.fs-history button:hover:not(:disabled), .fs-icon-button:hover) {
+  background: #303847;
+}
+.fs-app[data-theme='dark'] :is(.fs-step, .fs-editor-tabs, .fs-segmented) {
+  background: #292e38;
+}
+.fs-app[data-theme='dark'] :is(.fs-editor-tabs button, .fs-segmented button) {
+  color: var(--fs-muted);
+}
+.fs-app[data-theme='dark'] :is(.fs-editor-tabs button, .fs-segmented button)[aria-pressed='true'] {
+  color: var(--fs-ink);
+  background: #3a4352;
+  border-color: #4e5c70;
+  box-shadow: 0 1px 3px #0003;
+}
+.fs-app[data-theme='dark'] :is(.fs-tree, .fs-preview-canvas, .fs-bottom-drop-zones) {
+  scrollbar-color: #586476 transparent;
+}
+.fs-app[data-theme='dark'] :is(.fs-tree-row, .fs-preview-row) {
+  color: #dce2ec;
+}
+.fs-app[data-theme='dark'] .fs-tree-row:hover {
+  background: #282f3a;
+}
+.fs-app[data-theme='dark'] .fs-tree-row.is-selected {
+  color: #e2eeff;
+  background: var(--fs-selection);
+  border-color: #44658e;
+}
+.fs-app[data-theme='dark'] .fs-root-label {
+  color: #bdd7ff;
+  border-color: #4b6f9a;
+}
+.fs-app[data-theme='dark'] :is(.fs-folder-icon, .fs-preview-folder) {
+  color: #d6b879;
+}
+.fs-app[data-theme='dark'] :is(.fs-folder-icon svg, .fs-preview-folder svg) {
+  fill: #5d4e2a;
+}
+.fs-app[data-theme='dark'] :is(.fs-folder-icon.root, .fs-preview-root .fs-preview-folder) {
+  color: #99c6fc;
+}
+.fs-app[data-theme='dark'] :is(.fs-folder-icon.root svg, .fs-preview-root .fs-preview-folder svg) {
+  fill: #254b70;
+}
+.fs-app[data-theme='dark'] .fs-add-folder {
+  color: #dce2ec;
+  background: #232a35;
+  border-color: #52647b;
+}
+.fs-app[data-theme='dark'] .fs-add-folder:hover:not(:disabled) {
+  background: #293c55;
+  border-color: #80afe8;
+}
+.fs-app[data-theme='dark'] :is(.fs-selection-tools, .fs-preview-stats) {
+  background: #20242c;
+  border-color: var(--fs-line);
+}
+.fs-app[data-theme='dark'] .fs-context-actions {
+  background: #1e3450;
+}
+.fs-app[data-theme='dark'] .fs-context-actions button {
+  color: #c2d6f0;
+}
+.fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled) {
+  color: #e4efff;
+  background: #34577e;
+  border-color: #6b92bf;
+}
+.fs-app[data-theme='dark'] :is(.fs-context-delete, .fs-tool-buttons .fs-danger-icon) {
+  color: #ffaaaa;
+}
+.fs-app[data-theme='dark'] .fs-context-actions .fs-context-delete:hover:not(:disabled) {
+  color: #ffd3ce;
+  background: #512c32;
+  border-color: #ad6468;
+}
+.fs-app[data-theme='dark'] .fs-preview-canvas {
+  background: #181b21;
+}
+.fs-app[data-theme='dark'] .fs-preview-branch {
+  border-color: #586476;
+}
+.fs-app[data-theme='dark'] .fs-copy:hover:not(:disabled) {
+  color: #b6d5ff;
+}
+.fs-app[data-theme='dark'] .fs-export-options button {
+  color: var(--fs-muted);
+  background: #252a33;
+  border-color: #465162;
+}
+.fs-app[data-theme='dark'] .fs-export-options button:hover:not(:disabled) {
+  background: #2b3544;
+  border-color: #7892b3;
+}
+.fs-app[data-theme='dark'] .fs-export-options button.is-active {
+  background: #203b5d;
+  border-color: #80afe8;
+  box-shadow: 0 0 0 1px #80afe822;
+}
+.fs-app[data-theme='dark'] .fs-export-options button.is-active .fs-format-icon {
+  color: #b6d5ff;
+}
+.fs-app[data-theme='dark'] .fs-radio-dot {
+  border-color: #8795aa;
+}
+.fs-app[data-theme='dark'] .fs-export-options button.is-active .fs-radio-dot {
+  background: #203b5d;
+  border-color: #aad0ff;
+}
+.fs-app[data-theme='dark'] :is(.fs-text-area textarea, .fs-dialog input, .fs-dialog select, .fs-mobile-templates select, .fs-export-subtype select) {
+  color: #e0e6ef;
+  background: #20252e;
+  border-color: #526076;
+  caret-color: #b6d5ff;
+}
+.fs-app[data-theme='dark'] :is(input, textarea)::placeholder {
+  color: #9eaabf;
+  opacity: 1;
+}
+.fs-app[data-theme='dark'] :is(input, textarea)::selection {
+  color: #fff;
+  background: #355e8c;
+}
+.fs-app[data-theme='dark'] option {
+  color: var(--fs-ink);
+  background: #20252e;
+}
+.fs-app[data-theme='dark'] .fs-format-switch {
+  color: var(--fs-muted);
+  background: #272c36;
+  border-color: #465162;
+}
+.fs-app[data-theme='dark'] .fs-format-switch.is-active {
+  color: var(--fs-ink);
+  background: #3a4352;
+  box-shadow: 0 1px 3px #0003;
+}
+.fs-app[data-theme='dark'] .fs-format-switch > .fs-format-menu-trigger {
+  border-color: #59677b;
+}
+.fs-app[data-theme='dark'] .fs-format-switch > button:hover:not(:disabled) {
+  background: #46536a;
+}
+.fs-app[data-theme='dark'] .fs-format-menu {
+  background: #252a33;
+  border-color: #526076;
+  box-shadow: 0 12px 28px #0007;
+}
+.fs-app[data-theme='dark'] .fs-format-menu button {
+  color: #e0e6ef;
+}
+.fs-app[data-theme='dark'] :is(.fs-format-menu button:hover, .fs-format-menu button:focus) {
+  color: #d9eaff;
+  background: #304d70;
+}
+.fs-app[data-theme='dark'] .fs-text-valid {
+  color: #7ddbb0;
+}
+.fs-app[data-theme='dark'] .fs-notice {
+  color: #d1dbea;
+  background: #252e3b;
+  border-color: #46576e;
+}
+.fs-app[data-theme='dark'] :is(.fs-notice.is-error, .fs-inline-error) {
+  color: #ffc1aa;
+  background: #3b2624;
+  border-color: #8b5749;
+}
+.fs-app[data-theme='dark'] .fs-dialog::backdrop {
+  background: #03060db8;
+  backdrop-filter: blur(3px);
+}
+.fs-app[data-theme='dark'] .fs-dialog-icon {
+  color: #b6d5ff;
+  background: #273f60;
+  border-color: #4c6e99;
+}
+.fs-app[data-theme='dark'] .fs-tree-row.is-drop-target {
+  color: #e4efff;
+  background: #294b73;
+  border-color: #8bbdff;
+  outline-color: #8bbdff;
+}
+.fs-app[data-theme='dark'] .fs-tree-row.is-drop-invalid {
+  color: #ffd3ce;
+  background: #4a292e;
+  border-color: #db8585;
+}
+.fs-app[data-theme='dark'] .fs-drop-line {
+  background: #8bbdff;
+}
+.fs-app[data-theme='dark'] .fs-drop-line::before {
+  background: #1c1f26;
+  border-color: #8bbdff;
+}
+.fs-app[data-theme='dark'] .fs-bottom-drop-band {
+  color: #b6cbea;
+  background: #202e42;
+  border-color: #506c91;
+}
+.fs-app[data-theme='dark'] .fs-bottom-drop-band.is-active {
+  color: #e4efff;
+  background: #294b73;
+  border-color: #8bbdff;
+}
+.fs-app[data-theme='dark'] :is(button, input, select, textarea):disabled {
+  opacity: .48;
+}
+.fs-app[data-theme='dark'] :is(button, a, select, input, textarea):focus-visible {
+  outline: 3px solid #9ac7ff;
+  outline-offset: 3px;
+}
+.fs-app[data-theme='dark'] .fs-format-menu button:focus-visible,
+.fs-app[data-theme='dark'] .fs-app-menu-popover button:focus-visible {
+  outline-offset: -2px;
+}
+@container (min-width: 560px) {
+  .fs-app[data-theme='dark'] .fs-context-actions {
+    background: transparent;
+  }
+}
+@media (max-width: 800px) {
+  .fs-app .fs-sidebar {
+    gap: 12px;
+  }
+  .fs-app .fs-sidebar > .fs-brand {
+    flex: 1;
+    min-width: 0;
+    max-width: calc(100% - 56px);
+  }
+  .fs-app .fs-sidebar > .fs-brand .fs-brand-subtitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fs-app .fs-app-menu-mobile {
+    display: block;
+    flex: 0 0 44px;
+    margin-left: auto;
+  }
+  .fs-app .fs-app-menu-mobile .fs-app-menu-trigger {
+    justify-content: center;
+    width: 44px;
+    padding: 10px;
+    border-color: var(--fs-settings-border);
+    background: var(--fs-settings-surface);
+  }
+  .fs-app .fs-app-menu-mobile .fs-app-menu-popover {
+    top: calc(100% + 8px);
+    right: 0;
+    bottom: auto;
+    left: auto;
+  }
+}
+@media (max-width: 380px) {
+  .fs-app .fs-settings-dialog {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 20px;
+  }
+  .fs-app .fs-settings-dialog .fs-dialog-top {
+    gap: 10px;
+  }
+  .fs-app .fs-theme-options {
+    gap: 6px;
+  }
+  .fs-app .fs-theme-options button {
+    min-height: 82px;
+    padding: 12px 5px;
+    font-size: 12px;
+  }
+}
+@media (forced-colors: active) {
+  .fs-app .fs-theme-options button[aria-checked='true'] {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: -4px;
+  }
+}

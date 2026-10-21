@@ -1,5 +1,9 @@
 import type { CSSProperties } from 'react';
 const paths: Record<string, React.ReactNode> = {
+  settings: <><path d="m10 3-.5 2-2 .9-1.8-.6-2 3.4 1.3 1.5v2.3l-1.3 1.6 2 3.4 1.9-.6 2 .9.4 2.2h4l.5-2.2 2-.9 1.8.6 2-3.4-1.3-1.6v-2.3l1.3-1.5-2-3.4-1.9.6-2-.9L14 3Z"/><circle cx="12" cy="11.5" r="3"/></>,
+  monitor: <><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></>,
+  sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></>,
+  moon: <path d="M20.5 14.2A9 9 0 0 1 9.8 3.5a9 9 0 1 0 10.7 10.7Z"/>,
   folder: <path d="M3 7V5h7l2 2h9v13H3Z" />,
   seed: <><path d="M3 10V7h7l3 4h8v10H3Z"/><path d="M12 11C10 4 15 2 20 3c0 5-3 8-8 8Z"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,

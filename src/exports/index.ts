@@ -53,22 +53,22 @@ export function renderSVG(input: DirectoryDocument): { svg: string; width: numbe
   }
   const contents = rows.map(({ node, depth }, index) => {
     const { x, y } = positions.get(node.id)!;
-    const fill = depth === 0 ? '#c5e8d4' : '#f4dfad';
-    const stroke = depth === 0 ? '#55836d' : '#aa8541';
-    return `<g><path d="M ${x - 9} ${y - 7} h 7 l 3 3 h 9 v 12 h -19 z" fill="${fill}" stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round"/><text x="${x + 22}" y="${y + 5}" font-size="${index === 0 ? 16 : 14}" font-weight="${index === 0 ? 650 : 450}" fill="#24372f">${escapeXML(node.name)}</text></g>`;
+    const fill = depth === 0 ? '#dbeafe' : '#f4dfad';
+    const stroke = depth === 0 ? '#4b75ba' : '#aa8541';
+    return `<g><path d="M ${x - 9} ${y - 7} h 7 l 3 3 h 9 v 12 h -19 z" fill="${fill}" stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round"/><text x="${x + 22}" y="${y + 5}" font-size="${index === 0 ? 16 : 14}" font-weight="${index === 0 ? 650 : 450}" fill="#222b3b">${escapeXML(node.name)}</text></g>`;
   }).join('\n');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title description">
 <title id="title">${escapeXML(document.root.name)} — directory structure</title>
 <desc id="description">${escapeXML(formatTree(document))}</desc>
-<rect width="${width}" height="${height}" fill="#fafbf8"/>
+<rect width="${width}" height="${height}" fill="#f8fafc"/>
 <g font-family="${FONT}">
-<text x="32" y="35" font-size="11" font-weight="700" letter-spacing="1.8" fill="#56806a">FOLDERSEED · DIRECTORY STRUCTURE</text>
-<text x="32" y="60" font-size="13" fill="#6b7a71">${rows.length} ${rows.length === 1 ? 'folder' : 'folders'} · Folder-only layout</text>
-<path d="M 32 78 H ${width - 32}" stroke="#dce5dc"/>
-<g fill="none" stroke="#d5dfd6" stroke-width="1.5">${lines.join('')}</g>
+<text x="32" y="35" font-size="11" font-weight="700" letter-spacing="1.8" fill="#1d4ed8">FOLDERSEED · DIRECTORY STRUCTURE</text>
+<text x="32" y="60" font-size="13" fill="#596579">${rows.length} ${rows.length === 1 ? 'folder' : 'folders'} · Folder-only layout</text>
+<path d="M 32 78 H ${width - 32}" stroke="#dbe2ec"/>
+<g fill="none" stroke="#c5d0df" stroke-width="1.5">${lines.join('')}</g>
 ${contents}
-<text x="32" y="${height - 34}" font-size="11" fill="#7d8b81">This image describes your folder structure.</text>
-<text x="32" y="${height - 18}" font-size="11" fill="#7d8b81">Choose ZIP to download the actual empty folders.</text>
+<text x="32" y="${height - 34}" font-size="11" fill="#596579">This image describes your folder structure.</text>
+<text x="32" y="${height - 18}" font-size="11" fill="#596579">Choose ZIP to download the actual empty folders.</text>
 </g></svg>`;
   return { svg, width, height };
 }

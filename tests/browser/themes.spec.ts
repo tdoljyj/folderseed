@@ -36,8 +36,11 @@ async function mountWithThemeKey(page: Page, themeStorageKey: string | false) {
     const reactUrl = resources.find(url => new URL(url).pathname.endsWith('/deps/react.js'));
     const domUrl = resources.find(url => new URL(url).pathname.endsWith('/deps/react-dom_client.js'));
     if (!reactUrl || !domUrl) throw new Error('The example did not load its React entry modules.');
-    const { createElement } = await import(reactUrl);
-    const { createRoot } = await import(domUrl);
+    const reactModule = await import(reactUrl);
+    const domModule = await import(domUrl);
+    // Vite may expose optimized CommonJS dependencies through a default namespace.
+    const { createElement } = reactModule.default ?? reactModule;
+    const { createRoot } = domModule.default ?? domModule;
     const editorUrl = '/src/ui/FolderEditor.tsx';
     const { FolderEditor } = await import(editorUrl);
     document.getElementById('root')!.hidden = true;
@@ -166,6 +169,8 @@ test('supports radio keyboard changes, modal focus containment, and all settings
   await settings(page).getByRole('button', { name: 'Done', exact: true }).focus();
   await page.keyboard.press('Tab');
   await expect(settings(page).getByRole('button', { name: 'Close settings', exact: true })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(settings(page).getByRole('button', { name: 'Done', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(settings(page)).toHaveCount(0);
   await expect(menuTrigger(page)).toBeFocused();

@@ -67,13 +67,24 @@ export function SettingsDialog({ preference, storageWarning, onPreferenceChange,
     radios.current[themes.findIndex(theme => theme.value === preference)]?.focus();
   }, []);
   function close() { dialog.current?.close(); onClose(); }
+  function dialogKeys(event: KeyboardEvent<HTMLDialogElement>) {
+    if (event.key !== 'Tab' || event.defaultPrevented) return;
+    const controls = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+      .filter(button => button.tabIndex >= 0 && button.getClientRects().length > 0);
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (first && last && (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  }
   function themeKeys(event: KeyboardEvent, index: number) {
     const next = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? (index + 1) % themes.length
       : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? (index + themes.length - 1) % themes.length
       : event.key === 'Home' ? 0 : event.key === 'End' ? themes.length - 1 : -1;
     if (next >= 0) { event.preventDefault(); onPreferenceChange(themes[next].value); radios.current[next]?.focus(); }
   }
-  return <dialog ref={dialog} className="fs-dialog fs-settings-dialog" aria-labelledby={headingId}
+  return <dialog ref={dialog} className="fs-dialog fs-settings-dialog" aria-labelledby={headingId} onKeyDown={dialogKeys}
     onCancel={event => { event.preventDefault(); close(); }}
     onClick={event => {
       if (event.target !== event.currentTarget) return;

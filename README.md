@@ -201,3 +201,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Keep public code, documentation, comment
 ## License
 
 [MIT](LICENSE).
+
+### Brand typography
+
+The FolderSeed wordmark uses a locally bundled, unmodified Source Sans 3 variable font (weight 500), licensed under SIL OFL 1.1. Body text retains its separate Arial/Helvetica stack. No font is fetched from a third party at runtime. The license is included in `public/SourceSans3-OFL.txt` and copied into the library distribution.
+
+Font source: Google Fonts repository, commit `47d54ca1ebb14fd864695f1d39dc734f39017c33`, `ofl/sourcesans3/SourceSans3[wght].ttf`. SHA-256: `042fe2cc0b933e328410d7acbd0aa6a1873dca5aef81875f4bc214b08825c7b9`.

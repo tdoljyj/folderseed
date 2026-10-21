@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,3 +27,6 @@ function visit(directory) {
 
 visit(root);
 writeFileSync(new URL('../dist-lib/styles.d.ts', import.meta.url), 'export {};\n');
+
+// Keep the bundled brand font license with redistributable library output.
+copyFileSync(new URL('../public/SourceSans3-OFL.txt', import.meta.url), new URL('../dist-lib/SourceSans3-OFL.txt', import.meta.url));

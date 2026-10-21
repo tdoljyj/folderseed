@@ -215,7 +215,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
 
   return <div className="fs-app">
     <aside className="fs-sidebar">
-      <a className="fs-brand" href="#workspace" aria-label="FolderSeed workspace"><span className="fs-brand-mark"><Icon name="seed" size={26}/></span><span>FolderSeed<span className="fs-brand-subtitle">A little structure goes a long way.</span></span></a>
+      <a className="fs-brand" href="#workspace" aria-label="FolderSeed workspace"><span className="fs-brand-mark"><Icon name="seed" size={26}/></span><span><span className="fs-brand-name">FolderSeed</span><span className="fs-brand-subtitle">A little structure goes a long way.</span></span></a>
       <div className="fs-sidebar-section"><span className="fs-eyebrow">YOUR WORKSPACE</span><a className="fs-nav-active" href="#workspace"><Icon name="tree"/>Folder builder<span className="fs-nav-dot"/></a></div>
       <div className="fs-sidebar-section fs-templates"><span className="fs-eyebrow">A PLACE TO START</span><p>Skip the blank canvas.</p>{templates.map((template, index) => <button key={template.id} type="button" className="fs-template" disabled={textDirty} onClick={() => openModal({ kind: 'template', index })}><span className={`fs-template-icon color-${index}`}><Icon name={template.icon}/></span><span><strong>{template.name}</strong><small>{template.description}</small></span><Icon name="chevron" size={13}/></button>)}</div>
       <div className="fs-privacy-card"><span className="fs-privacy-icon"><Icon name="shield" size={22}/></span><strong>Your folders. Your device.</strong><p>No uploads, accounts, or tracking. Everything happens right here in your browser.</p><span className="fs-local-badge"><span/>LOCAL-FIRST BY DESIGN</span></div>

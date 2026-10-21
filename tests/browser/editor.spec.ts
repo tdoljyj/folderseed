@@ -28,6 +28,7 @@ async function downloadFormat(page: Page, name: string, format: string) {
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('A little structure.');
+  await page.evaluate(() => document.fonts.ready);
 });
 
 test('adds, renames, moves, reorders, deletes, and restores folders', async ({ page }) => {
@@ -237,3 +238,42 @@ for (const [label, indent] of [['4 spaces', '    '], ['Tabs', '\t']] as const) {
     await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeEnabled();
   });
 }
+
+test('uses the bundled Source Sans 3 wordmark without changing body typography', async ({ page }, testInfo) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  for (const [name, width, height] of [['desktop', 1440, 1080], ['mobile', 390, 844]] as const) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => document.fonts.check('500 22px "FolderSeed Source Sans 3"', 'FolderSeed'))).toBe(true);
+    const { root } = await cdp.send('DOM.getDocument');
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.fs-brand-name' });
+    const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+    expect(fonts.some(font => font.isCustomFont && /Source Sans 3/.test(font.familyName) && font.glyphCount > 0)).toBe(true);
+    const geometry = await page.locator('.fs-brand').evaluate(el => {
+      const mark = el.querySelector('.fs-brand-mark')!.getBoundingClientRect();
+      const text = el.querySelector(':scope > span:last-child')!.getBoundingClientRect();
+      const title = el.querySelector('.fs-brand-name')!;
+      const tagline = el.querySelector('.fs-brand-subtitle')!;
+      const range = document.createRange(); range.selectNodeContents(tagline);
+      return {
+        centerOffset: Math.abs(mark.top + mark.height / 2 - text.top - text.height / 2),
+        markWidth: mark.width,
+        taglineOneLine: tagline.getBoundingClientRect().height === parseFloat(getComputedStyle(tagline).lineHeight),
+        taglineFits: range.getBoundingClientRect().right <= el.getBoundingClientRect().right + 1,
+        transform: getComputedStyle(title).transform,
+        fontSize: getComputedStyle(title).fontSize,
+        bodyFont: getComputedStyle(document.querySelector('.fs-app')!).fontFamily,
+      };
+    });
+    expect(geometry.centerOffset).toBeLessThanOrEqual(1);
+    expect(geometry.markWidth).toBe(name === 'desktop' ? 40 : 38);
+    expect(geometry.taglineOneLine && geometry.taglineFits).toBe(true);
+    expect(geometry.transform).toBe('none');
+    expect(geometry.fontSize).toBe('22px');
+    expect(geometry.bodyFont).toMatch(/^Arial/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator('.fs-brand').screenshot({ path: testInfo.outputPath(`brand-${name}.png`) });
+  }
+});

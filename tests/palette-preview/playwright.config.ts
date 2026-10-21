@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: 'palette.spec.ts',
-  outputDir: '../../artifacts/palette-preview/results',
+  outputDir: '../../artifacts/apple-preview/results',
   fullyParallel: false,
   workers: 1,
   reporter: 'list',

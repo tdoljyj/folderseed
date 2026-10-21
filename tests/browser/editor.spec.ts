@@ -1139,3 +1139,35 @@ test('bounds deep ancestor bands and removes drag-only destinations when a drag 
   await page.getByRole('button', { name: 'Expand Source', exact: true }).click();
   await expect(page.locator('.fs-folder-name')).toHaveText(names);
 });
+
+
+test('keeps adjacent ancestor bands and their trailing whitespace free of dead drop gaps', async ({ page }) => {
+  await importText(page, 'Project\n  Other\n  A\n    B\n      C\n        Leaf');
+  await page.getByRole('button', { name: 'Collapse C', exact: true }).click();
+  const x = await beginStraightDownFolderDrag(page, 'Other', 0.65);
+  const first = bottomDropBand(page, 'B');
+  const last = bottomDropBand(page, 'A');
+  await expect(first).toBeVisible();
+  await expect(last).toBeVisible();
+  const firstBox = (await first.boundingBox())!;
+  const lastBox = (await last.boundingBox())!;
+  const zoneBox = (await page.locator('.fs-bottom-drop-zones').boundingBox())!;
+  expect(firstBox.y + firstBox.height).toBeCloseTo(lastBox.y, 0);
+  expect(lastBox.y + lastBox.height).toBeCloseTo(zoneBox.y + zoneBox.height, 0);
+  await page.mouse.move(x, firstBox.y + firstBox.height - 1, { steps: 12 });
+  await page.mouse.move(x + 1, firstBox.y + firstBox.height - 1);
+  await expect(first).toHaveClass(/is-active/);
+  await page.mouse.move(x, lastBox.y);
+  await page.mouse.move(x + 1, lastBox.y);
+  await expect(last).toHaveClass(/is-active/);
+  await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
+  // The exact bottom boundary returns to the existing horizontal whitespace target.
+  const tree = (await page.locator('.fs-tree').boundingBox())!;
+  await page.mouse.move(tree.x + 39, lastBox.y + lastBox.height, { steps: 8 });
+  await page.mouse.move(tree.x + 40, lastBox.y + lastBox.height);
+  await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
+  await expect(page.locator('.fs-tree-help')).toContainText('Release to insert after A');
+  await page.mouse.up();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Leaf', 'Other']);
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Other');
+});

@@ -2043,9 +2043,8 @@
 
 /* Full-width drag-only bands make ancestor insertion reachable by moving straight down. */
 .fs-tree-tail.has-drop-bands { min-height: 8px; }
-.fs-bottom-drop-zones { max-height: 144px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.fs-bottom-drop-zones { max-height: 144px; overflow-y: auto; scrollbar-width: thin; }
 .fs-bottom-drop-band { display: flex; align-items: center; width: 100%; min-height: 32px; border: 1px dashed #d2ddec; border-radius: 5px; background: #f7faff; color: #526680; }
-.fs-bottom-drop-band + .fs-bottom-drop-band { margin-top: 3px; }
 .fs-bottom-drop-band.is-active { border-color: #0068d9; background: #e8f1fd; color: #0055b3; }
 .fs-bottom-drop-guide { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 9px 5px 0; font-size: 10px; }
 .fs-bottom-drop-guide svg,.fs-bottom-drop-guide strong { flex-shrink: 0; }

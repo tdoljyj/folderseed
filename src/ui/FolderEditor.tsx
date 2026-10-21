@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type CSSProperties } from 'react';
 import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
@@ -350,14 +350,15 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     try { commit(moveFolder(doc, selected.node.id, parent.id, siblingIndex + delta), 'Folder order updated.'); focusFolder(selected.node.id); }
     catch (error) { notify(errorMessage(error), true); }
   }
-  function dragDestination(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' = 'row') {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const placement: DropPlacement = behavior !== 'row' && !isRoot ? 'after' : dropPlacement(event.clientY - bounds.top, bounds.height, isRoot);
+  function dragDestination(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' | 'frame' = 'row') {
+    const row = behavior === 'frame' ? event.currentTarget.querySelector('.fs-tree-row') : null;
+    const bounds = (row ?? event.currentTarget).getBoundingClientRect();
+    const placement: DropPlacement = (behavior === 'tail' || behavior === 'band') && !isRoot ? 'after' : dropPlacement(event.clientY - bounds.top, bounds.height, isRoot);
     const tree = treeRef.current;
     const depth = tree ? dropDepth(event.clientX, tree.getBoundingClientRect().left - tree.scrollLeft) : Infinity;
     return { id: behavior === 'band' ? target : resolveDropTarget(doc, target, placement, depth), placement };
   }
-  function dragOver(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' = 'row') {
+  function dragOver(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' | 'frame' = 'row') {
     const source = dragId.current;
     if (!source) return;
     event.preventDefault(); event.stopPropagation();
@@ -367,7 +368,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     event.dataTransfer.dropEffect = invalid ? 'none' : 'move';
     setDropTarget(previous => previous?.id === destination.id && previous.hoverId === target && previous.placement === destination.placement && previous.invalid === invalid ? previous : { ...destination, hoverId: target, invalid });
   }
-  function drop(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' = 'row') {
+  function drop(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' | 'frame' = 'row') {
     event.preventDefault(); event.stopPropagation(); setDropTarget(null);
     const source = dragId.current; dragId.current = null; dragDescendants.current.clear(); setDraggingId(null);
     if (!source) return;
@@ -427,7 +428,11 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     const target = dropTarget?.id === node.id ? dropTarget : null;
     const hasActions = actionOwnerId === node.id;
     return <li key={node.id} className={`fs-tree-item ${hasActions ? 'has-context-actions' : ''}`}>
-      <div className={`fs-tree-row ${hasActions ? 'has-actions' : ''} ${isSelected ? 'is-selected' : ''} ${target ? target.invalid ? 'is-drop-invalid' : target.placement === 'inside' ? 'is-drop-target' : `is-drop-${target.placement}` : ''}`} style={{ paddingLeft: 12 + level * 22 }}
+      <div className={`fs-folder-frame ${hasActions ? 'has-actions' : ''}`} style={{ '--fs-action-inset': `${Math.max(0, (level - 1) * 22)}px` } as CSSProperties}
+        onDragOver={event => dragOver(event, node.id, level === 0, 'frame')}
+        onDrop={event => drop(event, node.id, level === 0, 'frame')}
+        onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(previous => previous?.hoverId === node.id ? null : previous); }}>
+      <div className={`fs-tree-row ${hasActions ? 'has-actions' : ''} ${isSelected ? 'is-selected' : ''} ${target ? target.invalid ? 'is-drop-invalid' : target.placement === 'inside' ? 'is-drop-target' : `is-drop-${target.placement}` : ''}`} style={hasActions ? undefined : { paddingLeft: 12 + level * 22 }}
         draggable={level > 0} onDragStart={event => { if (!level) { event.preventDefault(); return; } dragId.current = node.id; setDragToolbarId(selected.node.id); setDraggingId(node.id); dragDescendants.current = new Set(flatten({ version: 1, root: node }).map(row => row.node.id)); setSelectedId(node.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id); }}
         onDragEnd={() => { setDraggingId(null); dragId.current = null; dragDescendants.current.clear(); setDropTarget(null); focusFolder(node.id); }} onDragOver={event => dragOver(event, node.id, level === 0)}
         onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(previous => previous?.hoverId === node.id ? null : previous); }} onDrop={event => drop(event, node.id, level === 0)}>
@@ -435,17 +440,17 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
         <button type="button" className="fs-folder-select" data-folder-id={node.id} aria-pressed={isSelected} onClick={() => setSelectedId(node.id)} title={node.name}><span className={`fs-folder-icon ${level === 0 ? 'root' : ''}`}><Icon name="folder" size={20}/></span><span className="fs-folder-name">{node.name}</span>{level === 0 && <span className="fs-root-label">ROOT</span>}</button>
         <span className="fs-row-count">{node.children.length || ''}</span><span className="fs-drag-hint"><Icon name="grip" size={15}/></span>
       </div>
-      {hasActions && <div className={`fs-context-actions ${draggingId ? 'is-dragging' : ''}`} role="group" aria-label={`Folder actions for ${node.name}`} aria-hidden={draggingId ? true : undefined}
-        onDragOver={event => dragOver(event, node.id, level === 0, 'tail')} onDrop={event => drop(event, node.id, level === 0, 'tail')}>
-        <button type="button" aria-label="Move up" title="Move up within this level" disabled={!!draggingId || !parent || siblingIndex <= 0} onClick={() => reorder(-1)}><Icon name="arrow-up" size={16}/></button>
-        <button type="button" aria-label="Move down" title="Move down within this level" disabled={!!draggingId || !parent || siblingIndex >= parent.children.length - 1} onClick={() => reorder(1)}><Icon name="arrow-down" size={16}/></button>
-        <button type="button" aria-label="Move to parent level" title={levelActions.outdent || 'Move to parent level, immediately after the parent folder'} disabled={!!draggingId || !!levelActions.outdent} onClick={() => changeLevel('outdent')}><Icon name="arrow-left" size={16}/></button>
-        <button type="button" aria-label="Move into previous sibling" title={levelActions.indent || 'Move inside the previous sibling folder'} disabled={!!draggingId || !!levelActions.indent} onClick={() => changeLevel('indent')}><Icon name="arrow-right" size={16}/></button>
-        <button type="button" aria-label="Add sibling folder" title="Add a folder at this level, immediately after this folder" disabled={!!draggingId || !parent || rows.length >= LIMITS.nodes} onClick={() => openModal({ kind: 'add', id: parent!.id, afterId: node.id })}><Icon name="add-sibling" size={16}/></button>
-        <button type="button" aria-label="Add child folder" title="Add a folder inside this folder" disabled={!!draggingId || selected.depth >= LIMITS.depth || rows.length >= LIMITS.nodes} onClick={() => openModal({ kind: 'add', id: node.id })}><Icon name="add-child" size={16}/></button>
-        <button type="button" aria-label="Rename" title="Rename this folder" disabled={!!draggingId} onClick={() => openModal({ kind: 'rename', id: node.id })}><Icon name="edit" size={16}/></button>
-        <button type="button" className="fs-context-delete" aria-label="Delete folder" title="Delete this folder and its contents" disabled={!!draggingId || !parent} onClick={() => openModal({ kind: 'delete', id: node.id })}><Icon name="trash" size={16}/></button>
+      {hasActions && <div className={`fs-context-actions ${draggingId ? 'is-dragging' : ''}`} role="group" aria-label={`Folder actions for ${node.name}`} aria-hidden={draggingId ? true : undefined}>
+        <button type="button" data-action="up" aria-label="Move up" title="Move up within this level" disabled={!!draggingId || !parent || siblingIndex <= 0} onClick={() => reorder(-1)}><Icon name="arrow-up" size={16}/></button>
+        <button type="button" data-action="down" aria-label="Move down" title="Move down within this level" disabled={!!draggingId || !parent || siblingIndex >= parent.children.length - 1} onClick={() => reorder(1)}><Icon name="arrow-down" size={16}/></button>
+        <button type="button" data-action="outdent" aria-label="Move to parent level" title={levelActions.outdent || 'Move to parent level, immediately after the parent folder'} disabled={!!draggingId || !!levelActions.outdent} onClick={() => changeLevel('outdent')}><Icon name="arrow-left" size={16}/></button>
+        <button type="button" data-action="indent" aria-label="Move into previous sibling" title={levelActions.indent || 'Move inside the previous sibling folder'} disabled={!!draggingId || !!levelActions.indent} onClick={() => changeLevel('indent')}><Icon name="arrow-right" size={16}/></button>
+        <button type="button" data-action="add-sibling" aria-label="Add sibling folder" title="Add a folder at this level, immediately after this folder" disabled={!!draggingId || !parent || rows.length >= LIMITS.nodes} onClick={() => openModal({ kind: 'add', id: parent!.id, afterId: node.id })}><Icon name="add-sibling" size={16}/></button>
+        <button type="button" data-action="add-child" aria-label="Add child folder" title="Add a folder inside this folder" disabled={!!draggingId || selected.depth >= LIMITS.depth || rows.length >= LIMITS.nodes} onClick={() => openModal({ kind: 'add', id: node.id })}><Icon name="add-child" size={16}/></button>
+        <button type="button" data-action="rename" aria-label="Rename" title="Rename this folder" disabled={!!draggingId} onClick={() => openModal({ kind: 'rename', id: node.id })}><Icon name="edit" size={16}/></button>
+        <button type="button" className="fs-context-delete" data-action="delete" aria-label="Delete folder" title="Delete this folder and its contents" disabled={!!draggingId || !parent} onClick={() => openModal({ kind: 'delete', id: node.id })}><Icon name="trash" size={16}/></button>
       </div>}
+      </div>
       {!isCollapsed && node.children.length > 0 && <ul>{node.children.map(child => renderFolder(child, level + 1))}</ul>}
       {target && !target.invalid && target.placement !== 'inside' && <span className={`fs-drop-line is-${target.placement}`} style={{ left: 12 + level * 22 }} aria-hidden="true"/>}
     </li>;

@@ -2051,29 +2051,124 @@
 .fs-bottom-drop-guide strong { font-weight: 600; }
 .fs-bottom-drop-guide > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The selected folder owns one contextual action group; narrow layouts place it below the row. */
+/* Selected-folder actions keep their spatial meaning around the glyph and name. */
 .fs-visual-area { container-type: inline-size; }
-.fs-tree { height: 388px; }
-.fs-tree-row.has-actions { min-width: 0; }
-.fs-context-actions { display: flex; justify-content: flex-end; gap: 2px; padding: 2px 8px 4px; background: #f0f5fd; border-radius: 0 0 6px 6px; }
-.fs-context-actions button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border: 1px solid transparent; border-radius: 5px; padding: 0; color: #526680; background: transparent; }
-.fs-context-actions button:hover:not(:disabled) { background: #dceaff; border-color: #b9d2f3; color: #0055b3; }
-.fs-context-actions button:disabled { opacity: .3; cursor: not-allowed; }
-.fs-context-actions .fs-context-delete:hover:not(:disabled) { background: #fce9e9; border-color: #e7baba; color: #b33737; }
-.fs-context-actions.is-dragging { opacity: .45; }
-.fs-context-actions.is-dragging > button { pointer-events: none; }
+.fs-tree { height: 448px; }
+.fs-app .fs-folder-frame { position: relative; }
+.fs-app .fs-folder-frame.has-actions {
+  --fs-action-size: 36px;
+  --fs-action-name-min: 72px;
+  --fs-action-min-width: calc(var(--fs-action-size) * 4 + var(--fs-action-name-min) + 2px);
+  --fs-action-columns: var(--fs-action-size) var(--fs-action-size) minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size);
+  min-width: var(--fs-action-min-width);
+  margin-inline-start: min(var(--fs-action-inset, 0px), max(0px, calc(100% - var(--fs-action-min-width))));
+  padding-block: var(--fs-action-size);
+}
+.fs-app .fs-folder-frame.has-actions > .fs-tree-row {
+  display: grid;
+  grid-template-columns: var(--fs-action-columns);
+  align-items: center;
+  min-width: 0;
+  height: var(--fs-action-size);
+  padding: 0;
+}
+.fs-app .fs-folder-frame.has-actions .fs-folder-select {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: var(--fs-action-size) minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
+}
+.fs-app .fs-folder-frame.has-actions .fs-folder-icon {
+  justify-self: center;
+}
+.fs-app .fs-folder-frame.has-actions .fs-folder-name {
+  justify-self: stretch;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-app .fs-folder-frame.has-actions :is(.fs-root-label, .fs-row-count, .fs-drag-hint, .fs-disclosure-placeholder) {
+  display: none;
+}
+.fs-app .fs-folder-frame.has-actions .fs-disclosure {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 1px;
+  width: var(--fs-action-size);
+  min-width: var(--fs-action-size);
+  height: var(--fs-action-size);
+  border-radius: 5px;
+}
+.fs-app .fs-context-actions {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: var(--fs-action-columns);
+  grid-template-rows: repeat(3, var(--fs-action-size));
+  align-items: center;
+  gap: 0;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.fs-app .fs-context-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  width: var(--fs-action-size);
+  min-width: var(--fs-action-size);
+  height: var(--fs-action-size);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #526680;
+  background: transparent;
+  pointer-events: auto;
+}
+.fs-app .fs-context-actions button[data-action='up'] { grid-area: 1 / 2; }
+.fs-app .fs-context-actions button[data-action='down'] { grid-area: 3 / 2; }
+.fs-app .fs-context-actions button[data-action='outdent'] { grid-area: 2 / 1; }
+.fs-app .fs-context-actions button[data-action='indent'] { grid-area: 2 / 4; }
+.fs-app .fs-context-actions button[data-action='delete'] { grid-area: 2 / 5; }
+.fs-app .fs-context-actions button[data-action='rename'] { grid-area: 1 / 3; }
+.fs-app .fs-context-actions button[data-action='add-sibling'] { grid-area: 3 / 3; }
+.fs-app .fs-context-actions button[data-action='add-child'] {
+  grid-area: 3 / 3;
+  margin-inline-start: var(--fs-action-size);
+}
+.fs-app .fs-context-actions button:hover:not(:disabled) {
+  color: #0055b3;
+  background: #dceaff;
+  border-color: #b9d2f3;
+}
+.fs-app .fs-context-actions button:disabled { opacity: .3; cursor: not-allowed; }
+.fs-app .fs-context-actions .fs-context-delete:hover:not(:disabled) {
+  color: #b33737;
+  background: #fce9e9;
+  border-color: #e7baba;
+}
+.fs-app .fs-context-actions.is-dragging { opacity: .45; }
+.fs-app .fs-context-actions.is-dragging > button { pointer-events: none; }
 .fs-selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 7px 16px; border-top: 1px solid #edf0f5; }
 .fs-selection-summary .fs-selected-path { margin: 0; min-width: 0; }
 .fs-advanced-move { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #dde2ea; border-radius: 5px; background: #fff; color: #626268; font-size: 11px; flex-shrink: 0; }
-@container (min-width: 560px) {
-  .fs-tree { height: 344px; }
-  .fs-tree-row.has-actions { padding-right: 281px; }
-  .fs-context-actions { position: absolute; top: 1px; right: 7px; padding: 0; background: transparent; }
-}
 @media (max-width: 600px) {
-  .fs-tree { height: 440px; }
-  .fs-context-actions { display: grid; grid-template-columns: repeat(4, minmax(44px, 1fr)); gap: 3px; padding: 4px 8px 6px; }
-  .fs-context-actions button { width: 100%; min-width: 44px; height: 44px; }
+  .fs-tree { height: 480px; }
+  .fs-app .fs-folder-frame.has-actions {
+    --fs-action-size: 44px;
+    --fs-action-name-min: 88px;
+  }
   .fs-advanced-move { min-height: 38px; }
 }
 
@@ -2427,7 +2522,7 @@
   border-color: var(--fs-line);
 }
 .fs-app[data-theme='dark'] .fs-context-actions {
-  background: #1e3450;
+  background: transparent;
 }
 .fs-app[data-theme='dark'] .fs-context-actions button {
   color: #c2d6f0;
@@ -2584,11 +2679,6 @@
 .fs-app[data-theme='dark'] .fs-format-menu button:focus-visible,
 .fs-app[data-theme='dark'] .fs-app-menu-popover button:focus-visible {
   outline-offset: -2px;
-}
-@container (min-width: 560px) {
-  .fs-app[data-theme='dark'] .fs-context-actions {
-    background: transparent;
-  }
 }
 @media (max-width: 800px) {
   .fs-app .fs-sidebar {

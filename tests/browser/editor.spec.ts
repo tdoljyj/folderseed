@@ -890,10 +890,12 @@ test('does not capture undo intended for controls outside the embedded editor', 
 async function beginPointerFolderDrag(page: Page, sourceName: string) {
   const source = folderRow(page, sourceName);
   await source.scrollIntoViewIfNeeded();
-  const box = (await source.boundingBox())!;
-  await page.mouse.move(box.x + box.width - 18, box.y + box.height / 2);
+  const box = (await source.locator('.fs-folder-select').boundingBox())!;
+  const x = box.x + box.width / 2;
+  // The folder label is the drag handle; selected rows now place Delete at the far right.
+  await page.mouse.move(x, box.y + box.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width - 32, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.move(x - 14, box.y + box.height / 2, { steps: 4 });
 }
 
 async function hoverAfterAtDepth(page: Page, targetName: string, depth: number) {
@@ -1059,7 +1061,7 @@ for (const widthRatio of [0.35, 0.65, 0.9]) {
     await expect(folderRow(page, 'Drafts')).toHaveCount(0);
     await expect(folderRow(page, 'Assets')).toHaveCount(0);
     await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(0);
-    // Also exercise the selected final folder, whose action group sits below its row.
+    // Also exercise the selected final folder, whose action frame surrounds its row.
     if (widthRatio === 0.65) await selectFolder(page, sourceName);
     const sourceBeforeDrag = (await folderRow(page, sourceName).boundingBox())!;
     const x = await beginStraightDownFolderDrag(page, sourceName, widthRatio);
@@ -1284,46 +1286,146 @@ test('indents and outdents complete subtrees with predictable ordering, undo, an
   expect(Object.keys(unzipSync(zip))).toEqual(['Project/', 'Project/Parent/', 'Project/Parent/Before/', 'Project/Parent/Later/', 'Project/Moving/', 'Project/Moving/Leaf/', 'Project/After/']);
 });
 
-test('keeps all selected-folder actions inline on a wide desktop beside a long name', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 2000, height: 1200 });
-  const longName = 'Client deliverables — approved photography and campaign artwork';
-  await importText(page, `Project\n  Alpha\n  ${longName}\n    Working files\n  Omega`);
-  await selectFolder(page, longName);
-  const actions = await expectEightFolderActions(page, longName);
-  const nameBox = (await folderRow(page, longName).locator('.fs-folder-select').boundingBox())!;
-  const actionsBox = (await actions.boundingBox())!;
-  expect(Math.abs(nameBox.y + nameBox.height / 2 - actionsBox.y - actionsBox.height / 2)).toBeLessThanOrEqual(2);
-  expect(actionsBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 1);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('selected-folder-actions-desktop.png'), fullPage: true });
-});
+type ActionBox = { x: number; y: number; width: number; height: number };
+const boxCenter = (box: ActionBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
-test('keeps eight selected-folder actions in a touch-sized four-by-two grid at 360 pixels', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 360, height: 900 });
-  const longName = 'Client deliverables — approved photography and campaign artwork';
-  await importText(page, `Project\n  Alpha\n  ${longName}\n    Working files\n  Omega`);
-  await selectFolder(page, longName);
-  const actions = await expectEightFolderActions(page, longName);
-  await actions.scrollIntoViewIfNeeded();
-  const boxes = await actions.getByRole('button').evaluateAll(buttons => buttons.map(button => {
-    const { x, y, width, height } = button.getBoundingClientRect();
-    return { x, y, width, height };
-  }));
-  for (const box of boxes) {
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(44);
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(360);
+async function expectSpatialFolderActions(page: Page, name: string, targetSize: number) {
+  const actions = await expectEightFolderActions(page, name);
+  const frame = page.locator('.fs-folder-frame.has-actions');
+  await expect(frame).toHaveCount(1);
+  await frame.scrollIntoViewIfNeeded();
+  const frameBox = (await frame.boundingBox())!;
+  const groupBox = (await actions.boundingBox())!;
+  const row = folderRow(page, name);
+  const glyphBox = (await row.locator('.fs-folder-icon svg').boundingBox())!;
+  const nameBox = (await row.locator('.fs-folder-name').boundingBox())!;
+  const glyph = boxCenter(glyphBox);
+  const boxes: Record<string, ActionBox> = {};
+  for (const action of ['up', 'down', 'outdent', 'indent', 'add-sibling', 'add-child', 'rename', 'delete']) {
+    boxes[action] = (await actions.locator(`[data-action="${action}"]`).boundingBox())!;
+    const box = boxes[action];
+    expect(box.width, `${action} target width`).toBeGreaterThanOrEqual(targetSize);
+    expect(box.height, `${action} target height`).toBeGreaterThanOrEqual(targetSize);
+    expect(box.x).toBeGreaterThanOrEqual(frameBox.x - 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(frameBox.x + frameBox.width + 1);
+    expect(box.y).toBeGreaterThanOrEqual(frameBox.y - 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(frameBox.y + frameBox.height + 1);
   }
-  expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(4);
-  expect(new Set(boxes.map(box => Math.round(box.y))).size).toBe(2);
-  const nameBox = (await folderRow(page, longName).locator('.fs-folder-select').boundingBox())!;
-  expect(boxes[0].y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height);
+  // Compare controls with the actual folder SVG, not the row or a detached toolbar.
+  expect(boxCenter(boxes.up).x).toBeCloseTo(glyph.x, 0);
+  expect(boxCenter(boxes.down).x).toBeCloseTo(glyph.x, 0);
+  expect(boxes.up.y + boxes.up.height).toBeLessThanOrEqual(glyphBox.y);
+  expect(boxes.down.y).toBeGreaterThanOrEqual(glyphBox.y + glyphBox.height);
+  for (const action of ['outdent', 'indent', 'delete']) expect(boxCenter(boxes[action]).y).toBeCloseTo(glyph.y, 0);
+  expect(boxes.outdent.x + boxes.outdent.width).toBeLessThanOrEqual(glyphBox.x);
+  expect(boxes.indent.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 1);
+  expect(boxes.delete.x).toBeGreaterThanOrEqual(boxes.indent.x + boxes.indent.width);
+  expect(boxes.rename.y + boxes.rename.height).toBeLessThanOrEqual(nameBox.y);
+  for (const action of ['rename', 'add-sibling', 'add-child']) {
+    expect(boxCenter(boxes[action]).x).toBeGreaterThanOrEqual(nameBox.x);
+    expect(boxCenter(boxes[action]).x).toBeLessThanOrEqual(nameBox.x + nameBox.width);
+  }
+  for (const action of ['add-sibling', 'add-child']) expect(boxes[action].y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height);
+  expect(boxes['add-sibling'].x + boxes['add-sibling'].width).toBeLessThanOrEqual(boxes['add-child'].x);
+  const entries = Object.entries(boxes);
+  for (let first = 0; first < entries.length; first++) {
+    for (let second = first + 1; second < entries.length; second++) {
+      const [firstName, a] = entries[first];
+      const [secondName, b] = entries[second];
+      const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+      const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+      expect(overlapX <= 0.5 || overlapY <= 0.5, `${firstName} must not overlap ${secondName}`).toBe(true);
+    }
+  }
+  expect(frameBox.height).toBeGreaterThanOrEqual(targetSize * 3);
+  expect(groupBox.width).toBeGreaterThan(0);
+  expect(groupBox.height).toBeGreaterThan(0);
+  const previousFrame = (await folderRow(page, 'Alpha').locator('..').boundingBox())!;
+  const childFrame = (await folderRow(page, 'Working files').locator('..').boundingBox())!;
+  expect(previousFrame.y + previousFrame.height).toBeLessThanOrEqual(frameBox.y);
+  expect(childFrame.y).toBeGreaterThanOrEqual(frameBox.y + frameBox.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await page.locator('.fs-tree').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('selected-folder-actions-mobile.png'), fullPage: true });
-  await actions.getByRole('button', { name: 'Rename', exact: true }).click();
-  await page.getByLabel('Folder name', { exact: true }).fill('Approved deliverables');
-  await page.getByRole('button', { name: 'Save name', exact: true }).click();
-  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Approved deliverables');
+  await expect(row.locator('.fs-folder-name')).toHaveCSS('text-overflow', 'ellipsis');
+  return actions;
+}
+
+for (const [layout, width, theme] of [
+  ['desktop', 1440, 'light'], ['mobile', 360, 'light'],
+  ['desktop', 1440, 'dark'], ['mobile', 360, 'dark'],
+] as const) {
+  test(`arranges selected-folder actions around the actual folder and name on ${theme} ${layout}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: layout === 'mobile' ? 1000 : 1100 });
+    await page.evaluate(theme => localStorage.setItem('folderseed:theme:v1', theme), theme);
+    await page.reload();
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator('.fs-app')).toHaveAttribute('data-theme', theme);
+    const longName = 'Client deliverables — approved photography and campaign artwork';
+    await importText(page, `Project\n  Alpha\n  ${longName}\n    Working files\n  Omega`);
+    await selectFolder(page, longName);
+    const actions = await expectSpatialFolderActions(page, longName, layout === 'mobile' ? 44 : 36);
+    await page.screenshot({ path: testInfo.outputPath(`spatial-folder-actions-${layout}-${theme}.png`), fullPage: true });
+    if (layout === 'mobile' && theme === 'light') {
+      await actions.getByRole('button', { name: 'Rename', exact: true }).click();
+      await page.getByLabel('Folder name', { exact: true }).fill('Approved deliverables');
+      await page.getByRole('button', { name: 'Save name', exact: true }).click();
+      await expect(page.locator('.fs-selected-path')).toHaveText('Project/Approved deliverables');
+    }
+  });
+}
+
+test('freezes the expanded selected-folder action frame while another folder is dragged', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await importText(page, 'Project\n  Alpha\n    Nested\n  Beta\n  Gamma');
+  await selectFolder(page, 'Alpha');
+  const frame = page.locator('.fs-folder-frame.has-actions');
+  const frameBefore = (await frame.boundingBox())!;
+  const targetBefore = (await folderRow(page, 'Alpha').boundingBox())!;
+  const nestedBefore = (await folderRow(page, 'Nested').boundingBox())!;
+  const betaBefore = (await folderRow(page, 'Beta').boundingBox())!;
+  await beginPointerFolderDrag(page, 'Gamma');
+  await hoverAfterAtDepth(page, 'Alpha', 1);
+  const actions = page.locator('.fs-context-actions');
+  await expect(actions).toHaveAttribute('aria-label', 'Folder actions for Alpha');
+  await expect(actions).toHaveAttribute('aria-hidden', 'true');
+  for (const button of await actions.locator('button').all()) await expect(button).toBeDisabled();
+  const frameDuring = (await frame.boundingBox())!;
+  expect(frameDuring.y).toBeCloseTo(frameBefore.y, 0);
+  expect(frameDuring.height).toBeCloseTo(frameBefore.height, 0);
+  expect((await folderRow(page, 'Alpha').boundingBox())!.y).toBeCloseTo(targetBefore.y, 0);
+  expect((await folderRow(page, 'Nested').boundingBox())!.y).toBeCloseTo(nestedBefore.y, 0);
+  expect((await folderRow(page, 'Beta').boundingBox())!.y).toBeCloseTo(betaBefore.y, 0);
+  const line = page.locator('.fs-drop-line.is-after');
+  await expect(line).toBeVisible();
+  expect((await line.boundingBox())!.y).toBeGreaterThanOrEqual(nestedBefore.y + nestedBefore.height - 2);
+  await page.screenshot({ path: testInfo.outputPath('spatial-folder-actions-drag-frozen.png'), fullPage: true });
+  await page.mouse.up();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Alpha', 'Nested', 'Gamma', 'Beta']);
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Gamma');
+});
+
+test('inserts before or after the complete subtree when dropped in selected-frame padding', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  for (const placement of ['before', 'after'] as const) {
+    await importText(page, 'Project\n  Alpha\n    Nested\n  Beta\n  Gamma');
+    await selectFolder(page, 'Alpha');
+    const frame = page.locator('.fs-folder-frame.has-actions');
+    const frameBox = (await frame.boundingBox())!;
+    const nested = (await folderRow(page, 'Nested').boundingBox())!;
+    await beginPointerFolderDrag(page, 'Gamma');
+    const x = frameBox.x + frameBox.width / 2;
+    const y = placement === 'before' ? frameBox.y + 2 : frameBox.y + frameBox.height - 2;
+    await page.mouse.move(x, y, { steps: 12 });
+    await page.mouse.move(x + 1, y);
+    const line = page.locator(`.fs-drop-line.is-${placement}`);
+    await expect(line).toBeVisible();
+    await expect(folderRow(page, 'Alpha')).not.toHaveClass(/is-drop-target/);
+    if (placement === 'after') expect((await line.boundingBox())!.y).toBeGreaterThanOrEqual(nested.y + nested.height - 2);
+    else expect((await line.boundingBox())!.y).toBeCloseTo(frameBox.y, 0);
+    await page.mouse.up();
+    await expect(page.locator('.fs-folder-name')).toHaveText(placement === 'before'
+      ? ['Project', 'Gamma', 'Alpha', 'Nested', 'Beta']
+      : ['Project', 'Alpha', 'Nested', 'Gamma', 'Beta']);
+    await expect(page.locator('.fs-selected-path')).toHaveText('Project/Gamma');
+  }
 });

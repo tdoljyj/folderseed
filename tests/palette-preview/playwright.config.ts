@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
-  testMatch: 'palette.spec.ts',
+  testMatch: 'brand-type.spec.ts',
   outputDir: '../../artifacts/apple-preview/results',
   fullyParallel: false,
   workers: 1,

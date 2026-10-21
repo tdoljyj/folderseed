@@ -1,4 +1,4 @@
-name: Apple-inspired preview (temporary)
+name: Brand typography preview (temporary)
 on:
   push:
     branches: [palette-preview]
@@ -17,15 +17,16 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - run: node tests/palette-preview/fetch-brand-fonts.mjs
       - run: npx playwright test --config tests/palette-preview/playwright.config.ts
       - name: Upload palette comparison
         uses: actions/upload-artifact@v4
         with:
-          name: folderseed-apple-preview
+          name: folderseed-brand-type
           path: |
-            artifacts/apple-preview/*.png
-            artifacts/apple-preview/comparison.html
-            artifacts/apple-preview/contrast.json
-            artifacts/apple-preview/typography-evidence.json
+            artifacts/brand-type/*.png
+            artifacts/brand-type/comparison.html
+            artifacts/brand-type/*.json
+            tests/palette-preview/licenses/
           retention-days: 1
           if-no-files-found: error

@@ -42,7 +42,7 @@ interface InitialState {
 }
 function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false): InitialState {
   const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'auto' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null };
-  if (initialDocument) return { ...defaults, document: validateDocument(initialDocument) };
+  if (initialDocument) return { ...defaults, textFormat: 'plain', document: validateDocument(initialDocument) };
   if (storageKey && typeof window !== 'undefined') {
     let raw: string | null = null;
     try {
@@ -56,10 +56,8 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
         const draft = hasDraft && (typeof stored.pending === 'boolean' || stored.draft !== '') ? stored.draft as string : null;
         const restoredFormat: TextFormat = textFormats.some(item => item.value === stored.textFormat) ? stored.textFormat : 'auto';
         const restoredIndent: ParseIndent = [2, 4, 'tabs', 'auto'].includes(stored.indent) ? stored.indent : 'auto';
-        let pending = draft !== null && stored.pending !== false;
-        if (draft !== null && !pending) {
-          try { pending = !sameStructure(document, parseText(draft, restoredFormat, restoredIndent)); } catch { pending = true; }
-        }
+        // A saved committed model is authoritative. Do not reinterpret its unchanged raw source on reload.
+        const pending = draft !== null && stored.pending !== false;
         return {
           ...defaults, document, draft,
           pending,
@@ -181,10 +179,19 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     }
     return formatText(next, outputFormat, chosenIndent === 'auto' ? 2 : chosenIndent);
   }
+  function replaceEditorText(next: DirectoryDocument) {
+    // Programmatic output has a known syntax; pin it rather than guessing from a new folder name.
+    let outputFormat = textFormat;
+    if (outputFormat === 'auto') {
+      try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
+      setTextFormat(outputFormat);
+    }
+    setTextDraft(editorText(next, outputFormat));
+  }
   function commit(next: DirectoryDocument, message: string) {
     contentRevision.current++;
     dispatch({ type: 'commit', document: next });
-    setTextDraft(editorText(next)); setTextDirty(false); notify(message);
+    replaceEditorText(next); setTextDirty(false); notify(message);
   }
   function applyPendingText(): DirectoryDocument | null {
     if (composingRef.current || parsed.error) return null;
@@ -210,7 +217,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   }
   function revertText() {
     contentRevision.current++;
-    setTextDraft(editorText(doc)); setTextDirty(false); notify('Restored the last valid structure.');
+    replaceEditorText(doc); setTextDirty(false); notify('Restored the last valid structure.');
   }
   function changeTextFormat(nextFormat: TextFormat) {
     contentRevision.current++;
@@ -234,7 +241,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     const current = nextDocument === doc ? history : historyReducer(history, { type: 'commit', document: nextDocument });
     const next = historyReducer(current, { type });
     contentRevision.current++;
-    dispatch({ type }); setTextDraft(editorText(next.present)); setTextDirty(false); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
+    dispatch({ type }); replaceEditorText(next.present); setTextDirty(false); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
   }
   function openModal(next: Modal) {
     if (!flushText()) return;
@@ -356,10 +363,10 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
           </div> : <div id="text-editor" role="tabpanel" aria-labelledby="text-tab" className="fs-text-area">
             <div className="fs-text-options fs-format-controls">
               <label htmlFor="text-format">Text format
-                <select id="text-format" value={textFormat} disabled={composing} onChange={event => changeTextFormat(event.target.value as TextFormat)}>{textFormats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                <select id="text-format" aria-label="Text format" value={textFormat} disabled={composing} onChange={event => changeTextFormat(event.target.value as TextFormat)}>{textFormats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               </label>
               <label htmlFor="indent">Indentation
-                <select id="indent" value={indent} disabled={composing || textFormat === 'ascii' || textFormat === 'unicode'} onChange={event => changeIndent(event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent)}>
+                <select id="indent" aria-label="Indentation" value={indent} disabled={composing || textFormat === 'ascii' || textFormat === 'unicode'} onChange={event => changeIndent(event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent)}>
                   <option value="auto">Auto-detect</option><option value="2">2 spaces</option><option value="4">4 spaces</option><option value="tabs">Tabs</option>
                 </select>
               </label>

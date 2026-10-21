@@ -46,6 +46,42 @@ describe('directory exports', () => {
     expect(parseJSON(await output.blob.text()).root.name).toBe(document.root.name);
   });
 
+  it.each([
+    ['Project', 'Project.txt'],
+    ['Project.ascii', 'Project.ascii.plain.txt'],
+    ['Project.ASCII', 'Project.ASCII.plain.txt'],
+    ['Project.tree', 'Project.tree.plain.txt'],
+    ['Project.TrEe', 'Project.TrEe.plain.txt'],
+    ['Project.plain', 'Project.plain.txt'],
+    ['Project.PLAIN', 'Project.PLAIN.txt'],
+  ])('plain TXT disambiguates reserved format suffixes for %s', async (name, filename) => {
+    const document = createDocument(name);
+    const output = await createExport(document, 'txt');
+    expect(output.filename).toBe(filename);
+    expect(paths(parseText(await output.blob.text(), 'plain'))).toEqual(paths(document));
+  });
+
+  it.each([
+    '\u540d'.repeat(81) + 'aa.asciiZ',
+    '\u540d'.repeat(81) + 'aa.ASCIIZ',
+    '\u540d'.repeat(82) + '.treeZ',
+    '\u540d'.repeat(82) + '.TrEeZ',
+  ])('plain TXT rechecks format collisions after UTF-8 truncation', async (name) => {
+    const document = createDocument(name);
+    const output = await createExport(document, 'txt');
+    expect(output.filename.endsWith('.plain.txt')).toBe(true);
+    expect(new TextEncoder().encode(output.filename).byteLength).toBeLessThanOrEqual(255);
+    expect(paths(parseText(await output.blob.text(), 'plain'))).toEqual(paths(document));
+  });
+
+  it.each(['.ascii', '.tree', '.plain'])('long Unicode TXT names retain data with a %s root suffix', async (suffix) => {
+    const document = createDocument('\u540d'.repeat(83) + suffix);
+    const output = await createExport(document, 'txt');
+    expect(new TextEncoder().encode(output.filename).byteLength).toBeLessThanOrEqual(255);
+    expect(output.filename).not.toMatch(/\.(?:ascii|tree)\.txt$/i);
+    expect(paths(parseText(await output.blob.text(), 'plain'))).toEqual(paths(document));
+  });
+
   it('TXT can be imported again without losing hierarchy', async () => {
     const document = fixture();
     const output = await createExport(document, 'txt');

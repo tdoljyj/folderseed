@@ -487,3 +487,36 @@ test('rejects a folder-count overflow without applying or discarding the large d
   await expect(input).toHaveValue(raw);
   await expect(page.getByRole('button', { name: 'Download ZIP', exact: true })).toBeDisabled();
 });
+
+test('keeps syntax-like names created visually unchanged after refresh', async ({ page }) => {
+  await page.getByRole('button', { name: /Start from scratch/ }).click();
+  await page.getByRole('button', { name: 'Use template', exact: true }).click();
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.getByLabel('Folder name', { exact: true }).fill('- Notes');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await addFolder(page, '├── Literal');
+  await page.reload();
+  await expect(page.locator('.fs-folder-name')).toHaveText(['- Notes', '├── Literal']);
+  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('plain');
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes\n  ├── Literal');
+  await page.getByLabel('Text format', { exact: true }).selectOption('auto');
+  await page.reload();
+  await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('auto');
+  await expect(page.locator('.fs-preview-root')).toContainText('- Notes');
+  await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
+});
+
+for (const name of ['Project.ascii', 'Project.tree']) {
+  test(`round-trips ordinary TXT when the root name ends in ${name.split('.').pop()}`, async ({ page }) => {
+    await importText(page, `${name}\n  Literal child`);
+    await page.getByRole('radio', { name: /^Plain text/ }).click();
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download TXT', exact: true }).click();
+    const download = await pending;
+    expect(download.suggestedFilename()).toBe(`${name}.plain.txt`);
+    const bytes = await readFile((await download.path())!);
+    await importText(page, bytes.toString(), download.suggestedFilename());
+    await expect(page.locator('.fs-folder-name')).toHaveText([name, 'Literal child']);
+  });
+}

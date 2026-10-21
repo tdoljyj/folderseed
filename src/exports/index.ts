@@ -112,17 +112,26 @@ async function rasterizePNG(svg: string, width: number, height: number): Promise
 }
 
 function downloadFilename(name: string, format: ExportFormat): string {
-  const extension = FILE_EXTENSIONS[format];
+  let extension = FILE_EXTENSIONS[format];
   if (!extension) throw new Error('Unsupported export format.');
   const encoder = new TextEncoder();
-  const budget = 255 - encoder.encode(extension).byteLength;
-  let basename = '';
-  for (const character of name) {
-    if (encoder.encode(basename + character).byteLength > budget) break;
-    basename += character;
+  function truncateBasename(suffix: string): string {
+    const budget = 255 - encoder.encode(suffix).byteLength;
+    let basename = '';
+    for (const character of name) {
+      if (encoder.encode(basename + character).byteLength > budget) break;
+      basename += character;
+    }
+    // Keep the extension and avoid a trailing space or period after shortening.
+    return basename.replace(/[ .]+$/u, '') || 'FolderSeed';
   }
-  // Keep the extension and avoid creating a trailing space or period when shortening.
-  basename = basename.replace(/[ .]+$/u, '') || 'FolderSeed';
+  let basename = truncateBasename(extension);
+  // Importers use compound suffixes as format hints. Plain exports must not
+  // accidentally look like ASCII/Unicode exports, including after truncation.
+  if (format === 'txt' && /\.(?:ascii|tree)$/i.test(basename)) {
+    extension = '.plain.txt';
+    basename = truncateBasename(extension);
+  }
   return basename + extension;
 }
 

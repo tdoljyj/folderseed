@@ -1007,3 +1007,135 @@ test('outdents the last folder by sliding left over its own bottom edge', async 
   await selectFolder(page, 'Leaf');
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/A/B/Leaf');
 });
+
+const bottomDropBand = (page: Page, ancestorName: string) => page.locator('.fs-bottom-drop-band').filter({ has: page.getByText(`After ${ancestorName}`, { exact: true }) });
+
+async function beginStraightDownFolderDrag(page: Page, sourceName: string, widthRatio: number) {
+  const source = folderRow(page, sourceName);
+  await source.scrollIntoViewIfNeeded();
+  const box = (await source.boundingBox())!;
+  const x = box.x + box.width * widthRatio;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  // Start the native drag without any sideways pointer movement.
+  await page.mouse.move(x, y + 8, { steps: 4 });
+  return x;
+}
+
+async function hoverBottomBandVertically(page: Page, x: number, ancestorName: string) {
+  const band = bottomDropBand(page, ancestorName);
+  await expect(band).toBeVisible();
+  const box = (await band.boundingBox())!;
+  expect(x).toBeGreaterThan(box.x);
+  expect(x).toBeLessThan(box.x + box.width);
+  await page.mouse.move(x, box.y + box.height / 2, { steps: 12 });
+  // Chromium needs another dragover after entering a native drop target.
+  await page.mouse.move(x, box.y + box.height / 2 + 1);
+  await expect(band).toHaveClass(/is-active/);
+  await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
+  await expect(page.locator('.fs-tree-help')).toContainText(`Release to insert after ${ancestorName}`);
+  const ancestorId = await folderRow(page, ancestorName).locator('.fs-folder-select').getAttribute('data-folder-id');
+  await expect(band).toHaveAttribute('data-drop-target-id', ancestorId!);
+}
+
+for (const widthRatio of [0.35, 0.65, 0.9]) {
+  test(`moves the collapsed final folder straight down from ${widthRatio * 100}% width and preserves its children`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    const sourceName = '02 Work in progress';
+    const original = 'Project\n  01 Inspiration\n    Reference\n    Moodboard\n  03 Final delivery\n    Exports\n    Archive\n    02 Work in progress\n      Drafts\n      Assets';
+    await importText(page, original);
+    await page.getByRole('button', { name: `Collapse ${sourceName}`, exact: true }).click();
+    await expect(folderRow(page, 'Drafts')).toHaveCount(0);
+    await expect(folderRow(page, 'Assets')).toHaveCount(0);
+    await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(0);
+    const x = await beginStraightDownFolderDrag(page, sourceName, widthRatio);
+    await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(1);
+    await hoverBottomBandVertically(page, x, '03 Final delivery');
+    const tree = (await page.locator('.fs-tree').boundingBox())!;
+    const line = (await page.locator('.fs-drop-line.is-after').boundingBox())!;
+    expect(line.x - tree.x).toBeCloseTo(12 + 22, 0);
+    const tail = (await page.locator('.fs-tree-tail').boundingBox())!;
+    const band = (await bottomDropBand(page, '03 Final delivery').boundingBox())!;
+    expect(tail.height).toBeLessThanOrEqual(9);
+    expect(band.y - (tail.y + tail.height)).toBeCloseTo(0, 0);
+    if (widthRatio === 0.65) await page.screenshot({ path: testInfo.outputPath('drag-straight-down-collapsed-final-folder.png'), fullPage: true });
+    await page.mouse.up();
+    await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(0);
+    await expect(page.locator('.fs-selected-path')).toHaveText(`Project/${sourceName}`);
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', '01 Inspiration', 'Reference', 'Moodboard', '03 Final delivery', 'Exports', 'Archive', sourceName, 'Drafts', 'Assets']);
+    await selectFolder(page, 'Drafts');
+    await expect(page.locator('.fs-selected-path')).toHaveText(`Project/${sourceName}/Drafts`);
+    await page.keyboard.press('Control+z');
+    await selectFolder(page, sourceName);
+    await expect(page.locator('.fs-selected-path')).toHaveText(`Project/03 Final delivery/${sourceName}`);
+    await page.keyboard.press('Control+Shift+z');
+    await expect(page.locator('.fs-selected-path')).toHaveText(`Project/${sourceName}`);
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document?.root?.children?.map((child: { name: string }) => child.name))).toEqual(['01 Inspiration', '03 Final delivery', sourceName]);
+    await page.reload();
+    await selectFolder(page, 'Assets');
+    await expect(page.locator('.fs-selected-path')).toHaveText(`Project/${sourceName}/Assets`);
+    const zip = await downloadFormat(page, 'Folder ZIP', 'zip');
+    expect(Object.keys(unzipSync(zip))).toEqual([
+      'Project/', 'Project/01 Inspiration/', 'Project/01 Inspiration/Reference/', 'Project/01 Inspiration/Moodboard/',
+      'Project/03 Final delivery/', 'Project/03 Final delivery/Exports/', 'Project/03 Final delivery/Archive/',
+      `Project/${sourceName}/`, `Project/${sourceName}/Drafts/`, `Project/${sourceName}/Assets/`,
+    ]);
+  });
+}
+
+test('chooses intermediate and root-child ancestor bands using only downward movement', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const original = 'Project\n  A\n    B\n      Source\n        Leaf';
+  for (const ancestor of ['B', 'A']) {
+    await importText(page, original);
+    await page.getByRole('button', { name: 'Collapse Source', exact: true }).click();
+    const x = await beginStraightDownFolderDrag(page, 'Source', 0.65);
+    await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(2);
+    await expect(page.locator('.fs-bottom-drop-band').nth(0)).toHaveAttribute('aria-label', 'Move out after B');
+    await expect(page.locator('.fs-bottom-drop-band').nth(1)).toHaveAttribute('aria-label', 'Move out after A');
+    await hoverBottomBandVertically(page, x, 'B');
+    const intermediateLeft = (await page.locator('.fs-drop-line.is-after').boundingBox())!.x;
+    const intermediateGuideLeft = (await bottomDropBand(page, 'B').locator('.fs-bottom-drop-guide').boundingBox())!.x;
+    if (ancestor === 'B') {
+      await page.screenshot({ path: testInfo.outputPath('drag-straight-down-intermediate-band.png'), fullPage: true });
+    } else {
+      await hoverBottomBandVertically(page, x, 'A');
+      const rootLeft = (await page.locator('.fs-drop-line.is-after').boundingBox())!.x;
+      const rootGuideLeft = (await bottomDropBand(page, 'A').locator('.fs-bottom-drop-guide').boundingBox())!.x;
+      expect(intermediateLeft - rootLeft).toBeCloseTo(22, 0);
+      expect(intermediateGuideLeft - rootGuideLeft).toBeCloseTo(22, 0);
+      await page.screenshot({ path: testInfo.outputPath('drag-straight-down-root-child-band.png'), fullPage: true });
+    }
+    await page.mouse.up();
+    await expect(page.locator('.fs-selected-path')).toHaveText(ancestor === 'B' ? 'Project/A/Source' : 'Project/Source');
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'Source', 'Leaf']);
+    await selectFolder(page, 'Leaf');
+    await expect(page.locator('.fs-selected-path')).toHaveText(ancestor === 'B' ? 'Project/A/Source/Leaf' : 'Project/Source/Leaf');
+    await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(0);
+  }
+});
+
+test('bounds deep ancestor bands and removes drag-only destinations when a drag is cancelled', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const names = ['Project', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Level 6', 'Source', 'Leaf'];
+  await importText(page, names.map((name, depth) => `${'  '.repeat(depth)}${name}`).join('\n'));
+  await page.getByRole('button', { name: 'Collapse Source', exact: true }).click();
+  await expect(page.locator('.fs-bottom-drop-zones')).toHaveCount(0);
+  await beginStraightDownFolderDrag(page, 'Source', 0.9);
+  await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(6);
+  await expect(page.locator('.fs-bottom-drop-band').first()).toHaveAttribute('aria-label', 'Move out after Level 6');
+  await expect(page.locator('.fs-bottom-drop-band').last()).toHaveAttribute('aria-label', 'Move out after Level 1');
+  const zones = page.locator('.fs-bottom-drop-zones');
+  expect((await zones.boundingBox())!.height).toBeLessThanOrEqual(144);
+  expect(await zones.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(page.locator('.fs-bottom-drop-band')).toHaveCount(0);
+  await expect(page.locator('.fs-bottom-drop-zones')).toHaveCount(0);
+  await expect(page.locator('.fs-drop-line')).toHaveCount(0);
+  await expect(page.locator('.fs-selected-path')).toHaveText('Project/Level 1/Level 2/Level 3/Level 4/Level 5/Level 6/Source');
+  await expect(page.getByRole('button', { name: 'Expand Source', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Expand Source', exact: true }).click();
+  await expect(page.locator('.fs-folder-name')).toHaveText(names);
+});

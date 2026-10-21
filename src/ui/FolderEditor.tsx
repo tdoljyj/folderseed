@@ -3,7 +3,7 @@ import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, par
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
 import { FormatSwitch } from './FormatSwitch';
-import { dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from './dragDrop';
+import { bottomAncestorTargets, dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from './dragDrop';
 import { historyReducer, historyShortcut } from './history';
 import { restoreTextFormat, type ExplicitTextFormat } from './draftFormat';
 import { makeTemplate, templates } from './templates';
@@ -100,6 +100,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const [exporting, setExporting] = useState(false);
   const [dropTarget, setDropTarget] = useState<{ id: string; hoverId: string; placement: DropPlacement; invalid: boolean } | null>(null);
   const dragId = useRef<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragDescendants = useRef(new Set<string>());
   const composingRef = useRef(false);
   const draftPersisted = useRef(false);
@@ -118,6 +119,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     while (!collapsed.has(node.id) && node.children.length) node = node.children[node.children.length - 1];
     return node;
   }, [doc, collapsed]);
+  const bottomTargets = useMemo(() => draggingId ? bottomAncestorTargets(doc, draggingId, lastVisibleFolder.id) : [], [doc, draggingId, lastVisibleFolder]);
   const selected = rows.find(row => row.node.id === selectedId) ?? rows[0];
   const parent = rows.find(row => row.node.id === selected.parentId)?.node;
   const siblingIndex = parent?.children.findIndex(node => node.id === selected.node.id) ?? -1;
@@ -292,29 +294,29 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     try { commit(moveFolder(doc, selected.node.id, parent.id, siblingIndex + delta), 'Folder order updated.'); }
     catch (error) { notify(errorMessage(error), true); }
   }
-  function dragDestination(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, trailing = false) {
+  function dragDestination(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' = 'row') {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const placement: DropPlacement = trailing && !isRoot ? 'after' : dropPlacement(event.clientY - bounds.top, bounds.height, isRoot);
+    const placement: DropPlacement = behavior !== 'row' && !isRoot ? 'after' : dropPlacement(event.clientY - bounds.top, bounds.height, isRoot);
     const tree = treeRef.current;
     const depth = tree ? dropDepth(event.clientX, tree.getBoundingClientRect().left - tree.scrollLeft) : Infinity;
-    return { id: resolveDropTarget(doc, target, placement, depth), placement };
+    return { id: behavior === 'band' ? target : resolveDropTarget(doc, target, placement, depth), placement };
   }
-  function dragOver(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, trailing = false) {
+  function dragOver(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' = 'row') {
     const source = dragId.current;
     if (!source) return;
     event.preventDefault(); event.stopPropagation();
-    const destination = dragDestination(event, target, isRoot, trailing);
+    const destination = dragDestination(event, target, isRoot, behavior);
     if (source === destination.id) { event.dataTransfer.dropEffect = 'none'; setDropTarget(null); return; }
     const invalid = dragDescendants.current.has(destination.id);
     event.dataTransfer.dropEffect = invalid ? 'none' : 'move';
     setDropTarget(previous => previous?.id === destination.id && previous.hoverId === target && previous.placement === destination.placement && previous.invalid === invalid ? previous : { ...destination, hoverId: target, invalid });
   }
-  function drop(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, trailing = false) {
+  function drop(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' = 'row') {
     event.preventDefault(); event.stopPropagation(); setDropTarget(null);
-    const source = dragId.current; dragId.current = null; dragDescendants.current.clear();
+    const source = dragId.current; dragId.current = null; dragDescendants.current.clear(); setDraggingId(null);
     if (!source) return;
     try {
-      const destination = dragDestination(event, target, isRoot, trailing);
+      const destination = dragDestination(event, target, isRoot, behavior);
       const next = moveByDrop(doc, source, destination.id, destination.placement);
       if (!sameStructure(doc, next)) { commit(next, 'Folder moved.'); setCollapsed(new Set()); }
     } catch (error) { notify(errorMessage(error), true); }
@@ -369,8 +371,8 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     const target = dropTarget?.id === node.id ? dropTarget : null;
     return <li key={node.id} className="fs-tree-item">
       <div className={`fs-tree-row ${isSelected ? 'is-selected' : ''} ${target ? target.invalid ? 'is-drop-invalid' : target.placement === 'inside' ? 'is-drop-target' : `is-drop-${target.placement}` : ''}`} style={{ paddingLeft: 12 + level * 22 }}
-        draggable={level > 0} onDragStart={event => { if (!level) { event.preventDefault(); return; } dragId.current = node.id; dragDescendants.current = new Set(flatten({ version: 1, root: node }).map(row => row.node.id)); setSelectedId(node.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id); }}
-        onDragEnd={() => { dragId.current = null; dragDescendants.current.clear(); setDropTarget(null); focusFolder(node.id); }} onDragOver={event => dragOver(event, node.id, level === 0)}
+        draggable={level > 0} onDragStart={event => { if (!level) { event.preventDefault(); return; } dragId.current = node.id; setDraggingId(node.id); dragDescendants.current = new Set(flatten({ version: 1, root: node }).map(row => row.node.id)); setSelectedId(node.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id); }}
+        onDragEnd={() => { setDraggingId(null); dragId.current = null; dragDescendants.current.clear(); setDropTarget(null); focusFolder(node.id); }} onDragOver={event => dragOver(event, node.id, level === 0)}
         onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(previous => previous?.hoverId === node.id ? null : previous); }} onDrop={event => drop(event, node.id, level === 0)}>
         {node.children.length ? <button type="button" className="fs-disclosure" aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${node.name}`} aria-expanded={!isCollapsed} onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}><Icon name={isCollapsed ? 'chevron' : 'down'} size={13}/></button> : <span className="fs-disclosure-placeholder"/>}
         <button type="button" className="fs-folder-select" data-folder-id={node.id} aria-pressed={isSelected} onClick={() => setSelectedId(node.id)} title={node.name}><span className={`fs-folder-icon ${level === 0 ? 'root' : ''}`}><Icon name="folder" size={20}/></span><span className="fs-folder-name">{node.name}</span>{level === 0 && <span className="fs-root-label">ROOT</span>}</button>
@@ -381,7 +383,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     </li>;
   }
   const dropRow = dropTarget ? rows.find(row => row.node.id === dropTarget.id) : undefined;
-  const dropHint = !dropTarget ? 'Edges reorder · Slide left to move out' : dropTarget.invalid ? 'Cannot drop into a descendant' : dropTarget.placement === 'inside' ? `Release to nest inside ${dropRow?.node.name}` : `Release to insert ${dropTarget.placement} ${dropRow?.node.name}`;
+  const dropHint = !dropTarget ? draggingId && bottomTargets.length ? 'Move down to a Move out band' : 'Edges reorder · Center nests' : dropTarget.invalid ? 'Cannot drop into a descendant' : dropTarget.placement === 'inside' ? `Release to nest inside ${dropRow?.node.name}` : `Release to insert ${dropTarget.placement} ${dropRow?.node.name}`;
   const modalRow = modal && modal.kind !== 'template' ? rows.find(row => row.node.id === modal.id) : undefined;
   const modalTitle = !modal ? '' : modal.kind === 'template' ? `Start with ${templates[modal.index].name.toLowerCase()}?` : modal.kind === 'add' ? 'A new place for something.' : modal.kind === 'rename' ? 'Give it a new name.' : modal.kind === 'delete' ? 'Remove this folder?' : 'Find a new home.';
   const destinationChildren = rows.find(row => row.node.id === destination)?.node.children.filter(child => child.id !== modalRow?.node.id) ?? [];
@@ -409,10 +411,19 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
           {mode === 'visual' ? <div id="visual-editor" role="region" aria-label="Visual editor" className="fs-visual-area">
             <div className="fs-tree-help"><span>{rows.length} folders</span><span aria-live="polite" title={dropHint}>{dropHint}</span></div>
             <ul className="fs-tree" aria-label="Folder list" ref={treeRef}
-              onDragOver={event => { if (isTrailingSpace(event)) dragOver(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, true); }}
-              onDrop={event => { if (isTrailingSpace(event)) drop(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, true); }}
+              onDragOver={event => { if (isTrailingSpace(event)) dragOver(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
+              onDrop={event => { if (isTrailingSpace(event)) drop(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
               onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(null); }}>
-              {renderFolder(doc.root, 0)}<li className="fs-tree-tail" aria-hidden="true"/>
+              {renderFolder(doc.root, 0)}<li className={`fs-tree-tail ${bottomTargets.length ? 'has-drop-bands' : ''}`} aria-hidden="true"/>
+              {bottomTargets.length > 0 && <li className="fs-bottom-drop-zones" aria-label="Move out destinations">
+                {bottomTargets.map(target => <div key={target.node.id} className={`fs-bottom-drop-band ${dropTarget?.id === target.node.id && dropTarget.placement === 'after' ? 'is-active' : ''}`}
+                  data-drop-target-id={target.node.id} aria-label={`Move out after ${target.node.name}`} title={`Move out after ${target.path}`}
+                  onDragOver={event => dragOver(event, target.node.id, false, 'band')}
+                  onDrop={event => drop(event, target.node.id, false, 'band')}
+                  onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(previous => previous?.hoverId === target.node.id ? null : previous); }}>
+                  <span className="fs-bottom-drop-guide" style={{ marginLeft: `min(${12 + Math.min(target.depth, 6) * 22}px, 30%)` }}><Icon name="up" size={13}/><strong>Move out</strong><span>After {target.node.name}</span></span>
+                </div>)}
+              </li>}
             </ul>
             {rows.length === 1 && <div className="fs-empty-hint"><Icon name="spark" size={23}/><p>Every good structure starts somewhere.<br/>Add your first folder below.</p></div>}
             <button type="button" className="fs-add-folder" onClick={() => openModal({ kind: 'add', id: selected.node.id })}><Icon name="plus" size={17}/>Add folder<span>inside {selected.node.name}</span></button>

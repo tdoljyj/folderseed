@@ -1,4 +1,4 @@
-import { DirectoryError, flatten, moveFolder, validateDocument, type DirectoryDocument } from '../core';
+import { DirectoryError, flatten, moveFolder, validateDocument, type DirectoryDocument, type FlatFolder } from '../core';
 
 export type DropPlacement = 'before' | 'inside' | 'after';
 
@@ -49,6 +49,39 @@ export function resolveDropTarget(
     target = parent;
   }
   return target.node.id;
+}
+
+/**
+ * Valid shallower destinations for drag-only bands below the visible tree.
+ * A collapsed last row still represents its complete subtree. Keep the source
+ * in the model when checking boundaries; removing it can invent invalid bands.
+ */
+export function bottomAncestorTargets(
+  document: DirectoryDocument,
+  sourceId: string,
+  lastVisibleId: string,
+): FlatFolder[] {
+  const rows = flatten(document);
+  const byId = new Map(rows.map(row => [row.node.id, row]));
+  const source = byId.get(sourceId);
+  const lastVisible = byId.get(lastVisibleId);
+  if (!source || !lastVisible || source.parentId === null) return [];
+
+  const targets: FlatFolder[] = [];
+  let boundary: FlatFolder = lastVisible;
+  while (boundary.depth > 1) {
+    const parent: FlatFolder = byId.get(boundary.parentId!)!;
+    if (parent.node.children.at(-1)?.id !== boundary.node.id) break;
+    boundary = parent;
+    if (boundary.node.id === sourceId) continue;
+    try {
+      if (moveByDrop(document, sourceId, boundary.node.id, 'after') !== document) targets.push(boundary);
+    } catch (error) {
+      // A forbidden destination does not make a shallower boundary invalid.
+      if (!(error instanceof DirectoryError)) throw error;
+    }
+  }
+  return targets;
 }
 
 /**

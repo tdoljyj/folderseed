@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDocument, DirectoryError, flatten, LIMITS, parseText, serializeJSON, type DirectoryDocument } from '../src/core';
-import { dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from '../src/ui/dragDrop';
+import { bottomAncestorTargets, dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from '../src/ui/dragDrop';
 import { historyReducer, type HistoryState } from '../src/ui/history';
 
 function fixture(): DirectoryDocument {
@@ -388,5 +388,166 @@ describe('resolved drop hierarchy and history', () => {
     expect(historyReducer(undone, { type: 'redo' }).present).toBe(next);
     const unchanged = moveByDrop(next, id(next, 'Tail'), id(next, 'Parent'), 'after');
     expect(unchanged).toBe(next);
+  });
+});
+
+describe('straight-down ancestor destination bands', () => {
+  function screenshotFixture(): DirectoryDocument {
+    return parseText('Root\n  03\n    Exports\n    Archive\n    Source\n      Components\n      Assets', 'plain');
+  }
+  function chainFixture(): DirectoryDocument {
+    return parseText('Root\n  Other\n  Outer\n    Middle\n      Inner\n        Leaf', 'plain');
+  }
+  function names(document: DirectoryDocument, source: string, last: string): string[] {
+    return bottomAncestorTargets(document, id(document, source), id(document, last)).map(row => row.node.name);
+  }
+
+  it('offers the parent of a collapsed dragged Source so dragging straight down promotes it', () => {
+    const document = screenshotFixture();
+    const before = serializeJSON(document);
+    const targets = bottomAncestorTargets(document, id(document, 'Source'), id(document, 'Source'));
+    expect(targets.map(row => ({ name: row.node.name, depth: row.depth, path: row.path })))
+      .toEqual([{ name: '03', depth: 1, path: 'Root/03' }]);
+    const promoted = moveByDrop(document, id(document, 'Source'), targets[0].node.id, 'after');
+    expect(children(promoted)).toEqual(['03', 'Source']);
+    expect(children(promoted, '03')).toEqual(['Exports', 'Archive']);
+    expect(children(promoted, 'Source')).toEqual(['Components', 'Assets']);
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it.each(['Exports', 'Archive'] as const)('offers promotion for another source %s while Source is collapsed', source => {
+    const document = screenshotFixture();
+    expect(names(document, source, 'Source')).toEqual(['03']);
+  });
+
+  it('uses the same valid ancestor when the dragged Source is expanded', () => {
+    const document = screenshotFixture();
+    // Source itself is excluded even though it is an ancestor of the last row.
+    expect(names(document, 'Source', 'Assets')).toEqual(['03']);
+  });
+
+  it.each([
+    ['Leaf', ['Inner', 'Middle', 'Outer']],
+    ['Inner', ['Middle', 'Outer']],
+    ['Middle', ['Outer']],
+    ['Outer', []],
+    ['Other', ['Inner', 'Middle', 'Outer']],
+  ] as const)('orders only genuinely usable ancestor bands for source %s', (source, expected) => {
+    const document = chainFixture();
+    expect(names(document, source, 'Leaf')).toEqual(expected);
+  });
+
+  it('starts with the parent, not the last visible folder itself', () => {
+    const document = chainFixture();
+    expect(names(document, 'Other', 'Inner')).toEqual(['Middle', 'Outer']);
+    expect(names(document, 'Other', 'Middle')).toEqual(['Outer']);
+    expect(names(document, 'Other', 'Outer')).toEqual([]);
+  });
+
+  it('stops before the first parent when the visible boundary is not its last child', () => {
+    const document = screenshotFixture();
+    expect(names(document, 'Archive', 'Exports')).toEqual([]);
+    expect(names(document, 'Exports', 'Components')).toEqual([]);
+  });
+
+  it('stops climbing at the first non-last ancestor rather than crossing later subtrees', () => {
+    const document = parseText('Root\n  Other\n  Outer\n    Middle\n      Leaf\n    Later', 'plain');
+    expect(names(document, 'Other', 'Leaf')).toEqual(['Middle']);
+    expect(names(document, 'Leaf', 'Leaf')).toEqual(['Middle']);
+  });
+
+  it('does not remove the dragged source before checking last-child boundaries', () => {
+    const document = parseText('Root\n  Outer\n    Middle\n      Leaf\n    Source', 'plain');
+    // After Middle is already Source's position; removing Source would wrongly
+    // make Middle last and invent a further band after Outer.
+    expect(names(document, 'Source', 'Leaf')).toEqual([]);
+  });
+
+  it('filters an outer no-op but retains a valid inner destination', () => {
+    const document = parseText('Root\n  Outer\n    Middle\n      Leaf\n  Source', 'plain');
+    expect(names(document, 'Source', 'Leaf')).toEqual(['Middle']);
+  });
+
+  it('skips duplicate-name destinations and continues to a valid shallower ancestor', () => {
+    const document = parseText('Root\n  Shared\n  Outer\n    shared\n    Middle\n      shared\n      Inner\n        Leaf', 'plain');
+    const before = serializeJSON(document);
+    expect(names(document, 'Shared', 'Leaf')).toEqual(['Outer']);
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('filters destinations that exceed depth limits but retains shallower valid bands', () => {
+    const deepSource = Array.from({ length: LIMITS.depth }, (_, index) => `${'  '.repeat(index + 1)}Source-${index}`).join('\n');
+    const document = parseText(`Root\n${deepSource}\n  Outer\n    Middle\n      Leaf`, 'plain');
+    const before = serializeJSON(document);
+    expect(names(document, 'Source-0', 'Leaf')).toEqual(['Outer']);
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('never offers root or any destination for a root source', () => {
+    const document = chainFixture();
+    expect(names(document, 'Root', 'Leaf')).toEqual([]);
+    expect(names(document, 'Other', 'Root')).toEqual([]);
+    expect(names(document, 'Other', 'Outer')).toEqual([]);
+    const empty = createDocument('Empty');
+    expect(bottomAncestorTargets(empty, empty.root.id, empty.root.id)).toEqual([]);
+  });
+
+  it('returns no bands for stale source or last-visible IDs', () => {
+    const document = chainFixture();
+    expect(bottomAncestorTargets(document, 'missing', id(document, 'Leaf'))).toEqual([]);
+    expect(bottomAncestorTargets(document, id(document, 'Other'), 'missing')).toEqual([]);
+    expect(bottomAncestorTargets(document, 'missing', 'missing')).toEqual([]);
+  });
+
+  it('still validates malformed input instead of hiding corrupt data', () => {
+    const document = chainFixture();
+    document.root.name = '../unsafe';
+    expectCode(() => bottomAncestorTargets(document, 'missing', 'missing'), 'UNSAFE_NAME');
+  });
+
+  it('returns cloned model rows and preserves immutable frozen input', () => {
+    const document = chainFixture();
+    const sourceId = id(document, 'Other');
+    const lastId = id(document, 'Leaf');
+    const before = serializeJSON(document);
+    const freeze = (node: DirectoryDocument['root']): void => {
+      node.children.forEach(freeze);
+      Object.freeze(node.children);
+      Object.freeze(node);
+    };
+    freeze(document.root);
+    Object.freeze(document);
+    const targets = bottomAncestorTargets(document, sourceId, lastId);
+    expect(targets.map(row => row.depth)).toEqual([3, 2, 1]);
+    targets[0].node.name = 'Changed returned clone';
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('supports the longest allowed ancestor chain without duplicate or root bands', () => {
+    const chain = Array.from({ length: LIMITS.depth }, (_, index) => `${'  '.repeat(index + 1)}Level-${index}`).join('\n');
+    const document = parseText(`Root\n${chain}`, 'plain');
+    const sourceId = id(document, `Level-${LIMITS.depth - 1}`);
+    const targets = bottomAncestorTargets(document, sourceId, sourceId);
+    expect(targets).toHaveLength(LIMITS.depth - 1);
+    expect(targets.map(row => row.depth)).toEqual(Array.from({ length: LIMITS.depth - 1 }, (_, index) => LIMITS.depth - 1 - index));
+    expect(new Set(targets.map(row => row.node.id)).size).toBe(targets.length);
+    expect(targets.every(row => row.parentId !== null && row.node.id !== sourceId)).toBe(true);
+  });
+
+  it('every offered band makes one valid move that undo and redo can restore', () => {
+    const document = chainFixture();
+    const sourceId = id(document, 'Leaf');
+    for (const target of bottomAncestorTargets(document, sourceId, sourceId)) {
+      const moved = moveByDrop(document, sourceId, target.node.id, 'after');
+      expect(moved).not.toBe(document);
+      const sourceRow = flatten(moved).find(row => row.node.id === sourceId)!;
+      expect(sourceRow.depth).toBe(target.depth);
+      const initial: HistoryState = { past: [], present: document, future: [] };
+      const committed = historyReducer(initial, { type: 'commit', document: moved });
+      expect(committed.past).toEqual([document]);
+      const undone = historyReducer(committed, { type: 'undo' });
+      expect(undone.present).toBe(document);
+      expect(historyReducer(undone, { type: 'redo' }).present).toBe(moved);
+    }
   });
 });

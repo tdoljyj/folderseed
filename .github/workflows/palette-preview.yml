@@ -1,0 +1,33 @@
+name: Palette preview (temporary)
+on:
+  push:
+    branches: [palette-preview]
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --config tests/palette-preview/playwright.config.ts
+      - name: Upload palette comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: folderseed-palette-previews
+          path: |
+            artifacts/palette-preview/A-graphite.png
+            artifacts/palette-preview/B-indigo.png
+            artifacts/palette-preview/C-teal.png
+            artifacts/palette-preview/comparison-triptych.png
+            artifacts/palette-preview/comparison.html
+            artifacts/palette-preview/palettes.json
+          retention-days: 1
+          if-no-files-found: error

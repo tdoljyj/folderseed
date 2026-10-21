@@ -1,0 +1,55 @@
+# Contributing to FolderSeed
+
+Thanks for helping make folder planning easier.
+
+## Development setup
+
+Use Node.js 22.12 or later and npm. CI uses Node.js 24.
+
+```sh
+npm ci
+npm run dev
+```
+
+Before submitting a change:
+
+```sh
+npm test
+npm run build:all
+npx playwright install chromium
+npm run test:e2e
+```
+
+Or, after installing the browser, run `npm run check`.
+
+## Project boundaries
+
+- `src/core/`: framework-independent document model, validation, parsing, and immutable operations.
+- `src/exports/`: in-memory archive, text, JSON, and image exports.
+- `src/ui/`: reusable React editor and scoped styles.
+- `tests/`: automated checks.
+- `examples/`: integration examples.
+
+Keep the core independent of the DOM and UI framework. Do not add a backend, analytics, remote fonts, account system, filesystem write access, or script execution without discussing the scope first.
+
+## What a good change includes
+
+1. A focused explanation of the problem and the intended behavior.
+2. Tests for the behavior, including invalid input and interrupted or repeated flows where relevant.
+3. Documentation updates for changed APIs, limits, or user-facing behavior.
+4. Screenshots for visible UI changes, with narrow and wide layouts checked.
+5. Honest verification notes: distinguish tests that passed from checks that were not run.
+
+Preserve 2-space, 4-space, and tab indentation during parsing. Never silently flatten an invalid tree. Treat imported JSON, text, and folder names as untrusted input. Never bypass the document validator to make an export succeed.
+
+Keep all public documentation, comments, UI copy, issue templates, and commit messages in English. Unicode folder names and internationalization test fixtures are welcome.
+
+## Issues and pull requests
+
+Before opening a large pull request, open an issue describing the use case. For a bug, include the browser/OS, the smallest safe sample that reproduces it, expected behavior, and actual behavior. Remove personal directory names from shared examples.
+
+Do not commit `node_modules/`, `dist/`, `dist-lib/`, local browser profiles, screenshots containing personal information, credentials, or generated test reports.
+
+## License
+
+Contributions are provided under the repository's MIT license. Only include code and assets you have permission to contribute; preserve required third-party notices.

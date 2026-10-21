@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "rootDir": "./src",
+    "outDir": "./dist-lib/types",
+    "types": ["vite/client", "react"],
+    "incremental": false
+  },
+  "include": ["src/core", "src/exports", "src/ui", "src/react.ts"],
+  "exclude": ["src/main.tsx", "tests", "examples"]
+}

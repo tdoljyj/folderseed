@@ -1,0 +1,83 @@
+{
+  "name": "folderseed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A friendly, local-first folder structure editor and generator.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "npm run test && npm run build:all && npm run test:e2e",
+    "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && node scripts/finalize-types.mjs",
+    "build:all": "npm run build && npm run build:lib"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "main": "./dist-lib/core.js",
+  "module": "./dist-lib/core.js",
+  "types": "./dist-lib/types/core/index.d.ts",
+  "files": [
+    "dist-lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist-lib/types/core/index.d.ts",
+      "import": "./dist-lib/core.js"
+    },
+    "./core": {
+      "types": "./dist-lib/types/core/index.d.ts",
+      "import": "./dist-lib/core.js"
+    },
+    "./exports": {
+      "types": "./dist-lib/types/exports/index.d.ts",
+      "import": "./dist-lib/exports.js"
+    },
+    "./react": {
+      "types": "./dist-lib/types/react.d.ts",
+      "import": "./dist-lib/react.js"
+    },
+    "./styles.css": {
+      "types": "./dist-lib/styles.d.ts",
+      "default": "./dist-lib/styles.css"
+    },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  }
+}

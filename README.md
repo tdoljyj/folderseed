@@ -1,2 +1,203 @@
-# folderseed
-A beginner-friendly visual folder structure designer and exporter.
+# FolderSeed
+
+**Plan a folder structure. Make it yours. Download the real folders.**
+
+FolderSeed is a small, local-first folder editor for people who would rather arrange folders than write scripts. Build your structure visually, edit it as text, and choose the export that fits your next step.
+
+No account, backend, API key, or command-line knowledge is needed to use the editor. Your draft stays in your browser; there is no telemetry or upload service.
+
+## What you can do
+
+- Add, rename, delete, reorder, and move folders in a visual editor.
+- Undo and redo changes, start from a template, and keep a local draft between visits.
+- Edit indented text with automatic detection of **2 spaces, 4 spaces, or tabs**. Invalid indentation is reported instead of silently flattening your structure.
+- Preview the structure as you work.
+- Import text, Markdown, or a versioned JSON document.
+- Export ZIP, TXT, Markdown, JSON, SVG, or PNG.
+- Reuse the framework-independent TypeScript core or embed the React editor in another application.
+
+FolderSeed currently models **folders only**, under one root folder. It does not create files or execute scripts.
+
+## Choose the right export
+
+| Format | What you get | Import again? |
+| --- | --- | --- |
+| **ZIP** | The actual empty folders, including the root and every nested folder. Extract the archive to create them on your device. | No ZIP import |
+| **TXT** | A plain-text, two-space-indented outline. | Yes |
+| **Markdown** | A fenced, readable directory tree for documentation. | Yes |
+| **JSON** | The complete versioned document, including stable folder IDs. Best for backup or integration. | Yes |
+| **SVG** | A scalable image of the directory structure. | No |
+| **PNG** | A raster image for sharing. | No |
+
+**TXT, Markdown, SVG, and PNG describe the structure; they do not create folders.** Only the ZIP contains real folder entries. Downloading any format does not modify existing folders on your device.
+
+## Run locally
+
+Requirements: **Node.js 22.12 or later** and npm. Node.js 24 is used in CI.
+
+```sh
+git clone https://github.com/tdoljyj/folderseed.git
+cd folderseed
+npm ci
+npm run dev
+```
+
+Open the local URL printed by Vite. No `.env` file, credentials, database, or separate server is required.
+
+```sh
+npm run build       # Type-check and build the standalone app in dist/
+npm run build:lib   # Build reusable ESM modules, types, and CSS in dist-lib/
+npm run build:all   # Build both the standalone app and reusable library
+npm run preview     # Preview the production app locally
+npm test            # Run the core and export unit tests
+```
+
+The generated `dist/` directory is a static application. This repository does not automatically deploy it.
+
+### Browser tests
+
+```sh
+npx playwright install chromium
+npm run test:e2e
+```
+
+On Linux, Playwright may need system dependencies (`npx playwright install --with-deps chromium`). If your environment already provides a compatible Chromium, you can use it instead:
+
+```sh
+PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
+```
+
+```sh
+npm run check     # Unit tests, both builds, and browser tests
+```
+
+The test suite covers indentation and round-trips, document validation, immutable folder operations, and export contents. See the tests and the current CI run for the precise verified coverage; the existence of a test is not a guarantee about every browser or archive utility.
+
+## Text editing
+
+Use one unindented root and a consistent indentation style below it:
+
+```text
+My project
+  Documents
+    Notes
+  Media
+    Photos
+    Video
+  Archive
+```
+
+The editor accepts two-space indentation, four-space indentation, or one tab per level. Automatic mode infers the style from the first child. You can also select a style explicitly. Blank lines are ignored. Mixed spaces and tabs, skipped levels, duplicate sibling names, and additional roots are rejected with an error rather than guessed.
+
+**Text changes are staged.** A valid draft updates the preview immediately; use **Apply changes** to commit it to the folder model and history, or **Discard draft** to return to the last committed structure. Invalid drafts show an error and leave the preview on the last committed structure. Export, import, templates, visual editing, and undo/redo wait until the draft is applied or discarded.
+
+FolderSeed's exported text, fenced Markdown, and Unicode tree notation can be parsed again. A trailing `/` may mark a folder, but names containing path separators are not accepted. Text import creates new IDs; JSON preserves IDs and is the preferred lossless project format.
+
+## Reuse in your application
+
+FolderSeed is an independent tool, not tied to another product, service, or store. No npm package has been published. You can use the built library locally or integrate the source directly.
+
+### Build and consume the library
+
+Run `npm run build:lib` in this repository. This creates ESM entry points, TypeScript declarations, and a separate stylesheet in `dist-lib/`. The package exports are:
+
+| Import | Purpose |
+| --- | --- |
+| `folderseed` or `folderseed/core` | Framework-independent typed model and operations |
+| `folderseed/exports` | ZIP, text, JSON, SVG, and PNG generation |
+| `folderseed/react` | The React editor component and its prop types |
+| `folderseed/styles.css` | Namespaced editor stylesheet |
+
+From a separate application, add the built local checkout as a dependency:
+
+```sh
+npm install ../folderseed
+```
+
+Then import the pieces you need:
+
+```tsx
+import { createDocument } from 'folderseed/core';
+import { FolderEditor } from 'folderseed/react';
+import 'folderseed/styles.css';
+```
+
+Use the React entry in a React 19 application. React and `fflate` remain external dependencies of the library build; the core entry does not load them. Styles are not injected by the JavaScript bundle, so import the CSS explicitly. The build is ESM-only; CommonJS and UMD bundles are not provided. `private: true` remains enabled to prevent accidental npm publication.
+
+The following examples use source imports for development inside this repository.
+
+### Framework-independent core
+
+The core has no React, DOM, filesystem, or network dependency. All operations return a new validated document without mutating their input.
+
+```ts
+import {
+  addFolder,
+  createDocument,
+  formatTree,
+  serializeJSON,
+} from './src/core';
+
+const initial = createDocument('My project');
+const updated = addFolder(initial, initial.root.id, 'Documents');
+
+console.log(formatTree(updated));
+const backup = serializeJSON(updated);
+```
+
+Import text with `parseIndented(text, 'auto')` or JSON with `parseJSON(text)`. Validate untrusted object input with `validateDocument(input)` before using it. Validation failures are `DirectoryError` instances with a stable `code` and, where applicable, a `line`.
+
+### React editor
+
+```tsx
+import { FolderEditor } from './src/ui/FolderEditor';
+import './src/ui/style.css';
+import { createDocument } from './src/core';
+
+const initialDocument = createDocument('My project');
+
+export function ProjectFolders() {
+  return (
+    <FolderEditor
+      initialDocument={initialDocument}
+      storageKey={false}
+      onChange={(document) => console.log(document)}
+    />
+  );
+}
+```
+
+`initialDocument` initializes the editor; it is not a continuously controlled value. `onChange` receives the initialized document and committed changes, not uncommitted text drafts. Set `storageKey={false}` when the host owns persistence, or pass a unique string to isolate drafts between projects. The standalone app uses `folderseed:draft:v1`.
+
+See [the embedding example](examples/embedding.tsx) and [architecture notes](docs/architecture.md) for the data model, integration boundaries, and export helper.
+
+## Privacy and safety
+
+- Editing, validation, and export happen in the browser. Folder contents are not uploaded.
+- The application does not scan or write your filesystem. It generates downloads in memory.
+- Folder names are treated as text, not HTML or commands. No scripts are generated or run.
+- Unsafe names, path traversal, control characters, operating-system reserved names, and duplicate sibling names are rejected.
+- ZIP entries are folder-only, use validated paths, and preserve empty folders.
+- Local drafts use browser storage. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
+- After the app has loaded, editing and exports do not need a network connection. This is not an installable offline/PWA app; a first load or later reload may still require access to its host.
+
+## Current limits
+
+- One root, at most **500 folders**, and at most **32 nested levels** below the root.
+- Names are at most **100 Unicode characters** and **255 UTF-8 bytes**. Names are normalized to NFC; sibling comparisons are case-insensitive.
+- Text/JSON imports are limited to **1 MB**.
+- PNG export is limited to **8,192 pixels per edge** and **32 million pixels**. Large structures should use SVG instead.
+- Folder-only: no real files, file contents, symbolic links, filesystem import, or ZIP import.
+- No collaboration, cloud sync, account system, or backend.
+- Undo/redo retains up to 50 committed changes in the current session; history is not saved across reloads.
+- Local browser storage is a convenience, not a durable backup or multi-tab synchronization system.
+- Browser font availability affects image appearance, especially emoji and less common scripts. Image exports do not bundle fonts.
+- Name validation improves portability, but total extracted path length, case rules, archive tools, and filesystem restrictions vary by platform. Keep deeply nested names short and inspect the destination when extracting.
+
+## Development and contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Keep public code, documentation, comments, and UI copy in English. International folder names are supported and covered by validation and export tests.
+
+## License
+
+[MIT](LICENSE).

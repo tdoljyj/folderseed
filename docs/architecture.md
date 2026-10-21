@@ -47,7 +47,7 @@ Use `validateDocument` at trust boundaries. Never construct a ZIP path directly 
 - `parseJSON(text)` and `serializeJSON(document)`: the versioned, ID-preserving project format.
 - `flatten(document)`: returns nodes with `parentId`, `depth`, and slash-separated relative `path`.
 
-The standalone editor has no indentation selector: generated text, the Tab key, and TXT/Markdown-list downloads use four spaces. Core formatter defaults remain unchanged for library consumers. Pasted and imported source is kept verbatim. Unfinished legacy drafts retain their stored parsing rule until committed or reverted; new drafts use automatic detection.
+The standalone editor has no indentation selector: generated text, the Tab key, and TXT/Markdown-list downloads use four spaces. Core formatter defaults remain unchanged for library consumers. Pasted and imported source is kept verbatim. Unfinished legacy drafts retain their stored parsing rule until committed or reverted; new drafts use automatic indentation detection.
 
 Automatic indentation detection uses the first indented line, then enforces the detected style. It supports two spaces, four spaces, or tabs and does not infer missing levels or silently repair mixed indentation. Errors retain source line numbers where possible.
 
@@ -120,11 +120,13 @@ Raw text is separate from the last valid `DirectoryDocument`. Valid text updates
 
 Invalid text remains in the textarea with its error and does not overwrite the last valid model. It blocks export, switching to visual editing, import, and templates until corrected or explicitly reverted. **Revert text** regenerates the selected style from the last valid model; it is an intentional discard action, never an automatic repair.
 
-Export, copy, and editor-tab transitions flush valid pending text before operating. Copy always produces the Unicode tree used by the text-tree preview. Valid format changes flush and convert the current document; choosing Auto-detect keeps the raw representation. For invalid input, format selection changes interpretation without replacing the raw text, allowing users to fix a wrong format choice.
+Export, copy, and transitions to visual editing flush valid pending text before operating. Copy always produces the Unicode tree used by the text-tree preview. The always-visible four-format dropdown opens text editing directly. In visual mode it has an empty placeholder, allowing the same previous format to be selected again. Choosing a different format flushes and converts the current document; reopening the current format preserves raw text. The visual-mode control is a toggle button, not a one-tab tablist. For invalid input, format selection changes interpretation without replacing the raw text, allowing users to fix a wrong format choice.
 
 Debounced typing bursts are history steps. Pending timers must not commit stale text after a newer edit, undo/redo, import, or other document replacement. Undo history is in-memory and is not restored after a reload.
 
 Styles use the `.fs-app` root and namespaced `.fs-*` classes; import `src/ui/style.css` for source integration or `folderseed/styles.css` for the built package once in the host. The source example in `examples/embedding.tsx` disables browser persistence and keeps a host-level snapshot.
+
+Legacy automatic-format drafts are migrated by `restoreTextFormat` only if an explicit parser yields the same tree. For committed drafts, the saved document is authoritative; for pending drafts, the old parser must succeed first. Invalid automatic drafts retain their raw source and internal parsing rule with a format-selection placeholder. Automatic format detection remains available to file imports and the core API, but is not an editor option.
 
 ### Persistence
 

@@ -393,7 +393,7 @@
   font-size: 12px;
   display: flex;
 }
-.fs-editor-tabs button[aria-selected=true] {
+.fs-editor-tabs button[aria-pressed=true] {
   color: #0055b3;
   border-bottom-color: #0068d9;
   font-weight: 600;
@@ -1538,7 +1538,7 @@
   padding: 0 12px;
   font-size: 11px;
 }
-.fs-editor-tabs button[aria-selected=true] {
+.fs-editor-tabs button[aria-pressed=true] {
   color: #1d1d1f;
   background: #fff;
   border-color: #dddee2;
@@ -1903,7 +1903,7 @@
   font-size: 15px;
   font-weight: 500;
 }
-.fs-step,.fs-editor-tabs button[aria-selected=true],.fs-preview-root,.fs-export-options strong,.fs-export-bottom strong,.fs-privacy-card strong {
+.fs-step,.fs-editor-tabs button[aria-pressed=true],.fs-preview-root,.fs-export-options strong,.fs-export-bottom strong,.fs-privacy-card strong {
   font-weight: 500;
 }
 .fs-button {

@@ -83,7 +83,7 @@ test('rejects duplicate and unsafe names without closing the edit dialog', async
 
 for (const [name, indentation] of [['four spaces', '    '], ['tabs', '\t']] as const) {
   test(`automatically applies ${name} and protects the last valid tree from malformed text`, async ({ page }) => {
-    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    await page.getByLabel('Text format', { exact: true }).selectOption('plain');
     const input = page.getByRole('textbox', { name: 'Folder structure text' });
     const raw = `Root\n${indentation}Child\n${indentation}${indentation}Grandchild`;
     await input.fill(raw);
@@ -96,11 +96,11 @@ for (const [name, indentation] of [['four spaces', '    '], ['tabs', '\t']] as c
     await expect(page.locator('.fs-save-state')).toContainText('Draft invalid');
     await expect(page.getByRole('button', { name: 'Download ZIP', exact: true })).toBeDisabled();
     await expect(page.locator('.fs-preview-row')).toHaveCount(3);
-    await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
     await expect(input).toBeVisible();
     await page.getByRole('button', { name: 'Revert text', exact: true }).click();
     await expect(page.locator('.fs-inline-error')).toHaveCount(0);
-    await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
     await expect(page.locator('.fs-folder-name')).toHaveText(['Root', 'Child', 'Grandchild']);
   });
 }
@@ -109,7 +109,7 @@ test('persists valid structure and unfinished text drafts across refresh', async
   await importText(page, 'Saved\n  Nested');
   await page.reload();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Saved', 'Nested']);
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Saved\n  Nested\n     unfinished');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').draft)).toBe('Saved\n  Nested\n     unfinished');
   page.on('dialog', dialog => dialog.accept());
@@ -201,7 +201,7 @@ test('embedded editor emits committed changes without looping on an inline host 
   await expect(page.getByTestId('host-update-count')).toHaveText('1');
   await addFolder(page, 'Embedded folder');
   await expect(page.getByTestId('host-update-count')).toHaveText('2');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Changed\n  Draft');
   await expect(page.getByTestId('host-update-count')).toHaveText('3');
   await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('Changed\n  Draft');
@@ -216,7 +216,7 @@ test('does not let a delayed import overwrite a newer text draft', async ({ page
     };
   });
   await importText(page, 'Older import\n  Old child', 'slow.txt');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Newer draft\n  Keep this');
   await page.evaluate(() => (window as unknown as { releaseImport: () => void }).releaseImport());
   await expect(page.getByRole('alert')).toContainText('Import cancelled');
@@ -234,7 +234,7 @@ test('preserves an unreadable stored draft before opening a fresh example', asyn
 
 for (const [label, indent] of [['2 spaces', '  '], ['4 spaces', '    '], ['tabs', '\t']] as const) {
   test(`preserves pasted ${label}, raw text, and cursor through automatic save and refresh`, async ({ page }) => {
-    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    await page.getByLabel('Text format', { exact: true }).selectOption('plain');
     await page.getByLabel('Text format', { exact: true }).selectOption('plain');
     await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
     await page.clock.install();
@@ -295,7 +295,7 @@ test('uses the bundled Source Sans 3 wordmark without changing body typography',
 });
 
 test('saves valid text automatically without replacing its whitespace', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   const raw = 'Automatic\n\n    Assets\n        Images\n    Notes\n';
   await input.fill(raw);
@@ -309,7 +309,7 @@ test('saves valid text automatically without replacing its whitespace', async ({
 
 test('preserves an empty invalid draft and the last valid model across refresh', async ({ page }) => {
   await importText(page, 'Keep\n  Safe');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('');
   await expect(page.locator('.fs-inline-error')).toBeVisible();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').draft)).toBe('');
@@ -323,7 +323,7 @@ test('preserves an empty invalid draft and the last valid model across refresh',
 });
 
 test('flushes valid pending text immediately when exporting instead of downloading stale folders', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.clock.install();
   await page.clock.pauseAt(new Date());
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Newest\n  Just added');
@@ -337,7 +337,7 @@ test('flushes valid pending text immediately when exporting instead of downloadi
 
 test('flushes valid pending text for copy and visual navigation', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.clock.install();
   await page.clock.pauseAt(new Date());
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
@@ -346,13 +346,13 @@ test('flushes valid pending text for copy and visual navigation', async ({ page,
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Copied\n└── Fresh');
   await waitForSavedModel(page, 'Copied');
   await input.fill('Visible\n  Latest');
-  await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Visible', 'Latest']);
 });
 
 test('groups a rapid text burst into a single undo step and restores it with redo', async ({ page }) => {
   await importText(page, 'Before\n  Original');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.clock.install();
   await page.clock.pauseAt(new Date());
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
@@ -369,7 +369,7 @@ test('groups a rapid text burst into a single undo step and restores it with red
 
 test('waits until IME composition ends before applying text or allowing downloads', async ({ page }) => {
   await importText(page, 'Before\n  Original');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.clock.install();
   await page.clock.pauseAt(new Date());
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
@@ -392,7 +392,7 @@ for (const [format, label, raw] of [
   ['unicode', 'Unicode tree', 'Root\n├── Assets\n│   └── Images\n└── Notes'],
 ] as const) {
   test(`automatically applies and restores explicit ${label} without rewriting it`, async ({ page }) => {
-    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    await page.getByLabel('Text format', { exact: true }).selectOption('plain');
     await page.getByLabel('Text format', { exact: true }).selectOption(format);
     const input = page.getByRole('textbox', { name: 'Folder structure text' });
     await input.fill(raw);
@@ -401,18 +401,18 @@ for (const [format, label, raw] of [
     await page.reload();
     await expect(page.getByLabel('Text format', { exact: true })).toHaveValue(format);
     await expect(input).toHaveValue(raw);
-    await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
     await expect(page.locator('.fs-folder-name')).toHaveText(['Root', 'Assets', 'Images', 'Notes']);
   });
 }
 
 test('keeps leading punctuation literal in explicit plain text mode', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   const raw = '- Root\n  + Notes\n  1. Archive\n  ├── Literal';
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill(raw);
   await waitForSavedModel(page, '- Root');
-  await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await expect(page.locator('.fs-folder-name')).toHaveText(['- Root', '+ Notes', '1. Archive', '├── Literal']);
 });
 
@@ -423,7 +423,7 @@ for (const [format, raw] of [
 ] as const) {
   test(`rejects malformed ${format} without replacing the last valid structure`, async ({ page }) => {
     await importText(page, 'Keep\n  Original');
-    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    await page.getByLabel('Text format', { exact: true }).selectOption('plain');
     await page.getByLabel('Text format', { exact: true }).selectOption(format);
     await page.getByRole('textbox', { name: 'Folder structure text' }).fill(raw);
     await expect(page.locator('.fs-inline-error')).toContainText('Line 3');
@@ -452,7 +452,7 @@ test('round-trips ASCII, Unicode, Markdown list, and legacy fenced Markdown down
 
 test('the auto-saving text controls fit on mobile and keep the selected format available', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByLabel('Text format', { exact: true }).selectOption('markdown');
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('- Mobile\n  - Notes');
   await waitForSavedModel(page, 'Mobile');
@@ -464,7 +464,7 @@ test('the auto-saving text controls fit on mobile and keep the selected format a
 });
 
 test('changing the parser can recover a draft without replacing its literal text', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await page.getByLabel('Text format', { exact: true }).selectOption('ascii');
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   const raw = '- Literal root\n  + Literal child';
@@ -478,7 +478,7 @@ test('changing the parser can recover a draft without replacing its literal text
 
 test('rejects a folder-count overflow without applying or discarding the large draft', async ({ page }) => {
   await importText(page, 'Keep\n  Original');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   const raw = 'Too many\n' + Array.from({ length: 500 }, (_, index) => `  Folder ${index}`).join('\n');
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   await input.fill(raw);
@@ -497,12 +497,16 @@ test('keeps syntax-like names created visually unchanged after refresh', async (
   await addFolder(page, '├── Literal');
   await page.reload();
   await expect(page.locator('.fs-folder-name')).toHaveText(['- Notes', '├── Literal']);
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('plain');
   await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes\n    ├── Literal');
-  await page.getByLabel('Text format', { exact: true }).selectOption('auto');
+  await page.evaluate(() => {
+    const key = 'folderseed:draft:v1';
+    const stored = JSON.parse(localStorage.getItem(key)!);
+    localStorage.setItem(key, JSON.stringify({ ...stored, textFormat: 'auto' }));
+  });
   await page.reload();
-  await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('auto');
+  await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('plain');
   await expect(page.locator('.fs-preview-root')).toContainText('- Notes');
   await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
 });
@@ -524,7 +528,7 @@ for (const name of ['Project.ascii', 'Project.tree']) {
 
 test('uses four spaces for generated text and the Tab key without an indentation setting', async ({ page }) => {
   await importText(page, 'Root\n  Child\n    Grandchild');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   await expect(input).toHaveValue('Root\n  Child\n    Grandchild');
   await page.getByLabel('Text format', { exact: true }).selectOption('markdown');
@@ -537,7 +541,7 @@ test('uses four spaces for generated text and the Tab key without an indentation
   await input.pressSequentially('New child');
   await expect(input).toHaveValue('Root\n    New child');
   await waitForSavedModel(page, 'Root');
-  await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Root', 'New child']);
 });
 
@@ -564,8 +568,10 @@ test('retains an unfinished legacy draft and its explicit indentation rule', asy
 for (const [name, width, height] of [['desktop', 1440, 1080], ['narrow', 360, 800]] as const) {
   test(`keeps the format control beside the editing modes or safely wrapped on ${name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height });
-    await expect(page.getByLabel('Text format', { exact: true })).toHaveCount(0);
-    await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+    await expect(page.getByLabel('Text format', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Text format', { exact: true })).toHaveValue('');
+    await expect(page.getByRole('button', { name: 'Text editor', exact: true })).toHaveCount(0);
+    await page.getByLabel('Text format', { exact: true }).selectOption('plain');
     const toolbar = page.locator('.fs-editor-toolbar');
     const control = toolbar.getByRole('combobox', { name: 'Text format', exact: true });
     await control.selectOption('markdown');
@@ -573,7 +579,7 @@ for (const [name, width, height] of [['desktop', 1440, 1080], ['narrow', 360, 80
     await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const controlBox = (await control.boundingBox())!;
-    const tabsBox = (await toolbar.getByRole('tablist').boundingBox())!;
+    const tabsBox = (await toolbar.locator('.fs-editor-tabs').boundingBox())!;
     expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(width);
     expect(controlBox.width).toBeGreaterThanOrEqual(132);
     if (name === 'desktop') expect(Math.abs(controlBox.y - tabsBox.y)).toBeLessThanOrEqual(2);
@@ -581,3 +587,50 @@ for (const [name, width, height] of [['desktop', 1440, 1080], ['narrow', 360, 80
     await page.screenshot({ path: testInfo.outputPath(`text-toolbar-${name}.png`), fullPage: true });
   });
 }
+
+
+for (const format of ['plain', 'markdown', 'ascii', 'unicode']) {
+  test(`opens ${format} directly and reopens the same format after visual editing`, async ({ page }) => {
+    const control = page.getByRole('combobox', { name: 'Text format', exact: true });
+    await expect(control).toBeVisible();
+    await expect(control.locator('option')).toHaveText(['Choose text format', 'Plain text', 'Markdown list', 'ASCII tree', 'Unicode tree']);
+    await control.selectOption(format);
+    const input = page.getByRole('textbox', { name: 'Folder structure text' });
+    await expect(input).toBeVisible();
+    await expect(control).toHaveValue(format);
+    const raw = await input.inputValue();
+    await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
+    await expect(input).toHaveCount(0);
+    await expect(control).toHaveValue('');
+    await control.selectOption(format);
+    await expect(input).toBeVisible();
+    await expect(input).toHaveValue(raw);
+    await expect(control).toHaveValue(format);
+    await page.reload();
+    await expect(input).toHaveValue(raw);
+    await expect(control).toHaveValue(format);
+  });
+}
+
+test('preserves invalid legacy automatic drafts until a format is explicitly chosen', async ({ page }) => {
+  await importText(page, 'Keep\n  Original');
+  await expect(page.locator('.fs-folder-name')).toHaveText(['Keep', 'Original']);
+  const raw = '- Root\n  Child';
+  await page.evaluate(raw => {
+    const key = 'folderseed:draft:v1';
+    const stored = JSON.parse(localStorage.getItem(key)!);
+    localStorage.setItem(key, JSON.stringify({ ...stored, draft: raw, pending: true, textFormat: 'auto', mode: 'text' }));
+  }, raw);
+  await page.reload();
+  const control = page.getByRole('combobox', { name: 'Text format', exact: true });
+  const input = page.getByRole('textbox', { name: 'Folder structure text' });
+  await expect(control).toHaveValue('');
+  await expect(input).toHaveValue(raw);
+  await expect(page.locator('.fs-inline-error')).toBeVisible();
+  await expect(page.locator('.fs-preview-root')).toContainText('Keep');
+  await expect(page.getByRole('button', { name: 'Download ZIP', exact: true })).toBeDisabled();
+  await control.selectOption('plain');
+  await waitForSavedModel(page, '- Root');
+  await expect(input).toHaveValue(raw);
+  await expect(control).toHaveValue('plain');
+});

@@ -112,15 +112,15 @@ My project
 
 ### Supported text formats
 
-Use the compact format dropdown beside the editing-mode buttons to choose **Auto-detect**, **Plain text**, **Markdown list**, **ASCII tree**, or **Unicode tree**. Use an explicit format when a folder name resembles list or tree syntax and automatic detection is not what you intend.
+The toolbar has a **Visual editor** button and an always-visible **Text format** dropdown. Choose **Plain text**, **Markdown list**, **ASCII tree**, or **Unicode tree** to open that text editor directly. There is no separate text-mode button or automatic-format option. In visual mode the dropdown shows **Choose text format**, so you can select the same format again to return to your text.
 
-Changing the format converts valid text to that representation; choosing Auto-detect preserves the current raw text. If the text is invalid, changing the format only changes how it is interpreted, so you can correct a mistaken format selection without losing the draft.
+Choosing a different format converts valid text to that representation; reopening the same format preserves its raw text. If the text is invalid, changing the format only changes how it is interpreted, so you can correct a mistaken format selection without losing the draft.
 
 - **Plain text:** one root followed by indented children. Use two spaces, four spaces, or one tab per level. Indentation is detected from the first child; no manual setting is needed. Generated text and the Tab key use four spaces per level, while pasted or imported text keeps its original spacing.
 - **Markdown list:** one-root nested unordered lists using `-`, `*`, or `+` markers, with consistent two-space, four-space, or tab indentation. Ordered lists are not supported. Exported labels use whole-name code spans so punctuation remains part of the folder name, not Markdown styling.
 - **ASCII tree:** connector-based trees using `|--`, `` `-- ``, or `+--` branches. Only the connectors are ASCII; Unicode folder names remain UTF-8 text.
 - **Unicode tree:** branches such as `├──` and `└──` with matching indentation.
-- **Fenced text:** existing fenced plain, ASCII, and Unicode blocks are accepted in Auto-detect or Markdown mode, including Markdown tree downloads. Explicit Plain text mode treats bullets, connectors, and fences as literal text rather than stripping them.
+- **Fenced text:** existing fenced plain, ASCII, and Unicode blocks are accepted in Markdown mode or through automatic file-import detection, including Markdown tree downloads. Explicit Plain text mode treats bullets, connectors, and fences as literal text rather than stripping them.
 
 Blank lines are ignored. Mixed spaces and tabs, skipped levels, duplicate sibling names, and additional roots are rejected rather than guessed. A trailing `/` may mark a folder, but names containing path separators are not accepted.
 
@@ -150,7 +150,7 @@ File imports use their extension to avoid guessing away parts of a folder name:
 - `.md`, `.markdown`, or `.tree.md` imports as **Markdown**, including supported fenced blocks.
 - `.json` imports the versioned project; other extensions use automatic text detection.
 
-If a tree from another tool is saved as an ordinary `.txt` file, paste it into the Text editor and choose its format, or rename it to the appropriate `.ascii.txt` or `.tree.txt` suffix. FolderSeed's own downloads already use the matching suffixes. Plain-text downloads whose shortened basename would end in `.ascii` or `.tree` use `.plain.txt` to avoid being mistaken for a tree format.
+If a tree from another tool is saved as an ordinary `.txt` file, choose its format in the dropdown and paste it into the text editor, or rename it to the appropriate `.ascii.txt` or `.tree.txt` suffix. FolderSeed's own downloads already use the matching suffixes. Plain-text downloads whose shortened basename would end in `.ascii` or `.tree` use `.plain.txt` to avoid being mistaken for a tree format.
 
 ### Automatic updates, without losing your text
 
@@ -158,9 +158,9 @@ There is no Apply button. Valid text updates the preview immediately and is comm
 
 An invalid draft shows an error with a source line when available and keeps the **last valid structure** in the preview. The invalid text stays in the editor; it is never silently replaced. Fix the error or choose **Revert text** to explicitly return to a valid structure. Export, switching to visual editing, importing, and opening a template are blocked while text is invalid.
 
-Exporting, copying, or switching editor tabs commits valid pending text first, so these actions do not use an older version of the tree. **Copy tree** always copies the Unicode tree shown by the text-tree preview. Browser autosave retains the raw text, editor mode, selected format, and last valid document—including when the text is temporarily invalid or empty. Reloading restores that editing state; unfinished drafts from older versions also retain their original parsing rule. Undo history remains session-only.
+Exporting, copying, or switching to visual editing commits valid pending text first, so these actions do not use an older version of the tree. **Copy tree** always copies the Unicode tree shown by the text-tree preview. Browser autosave retains the raw text, editor mode, selected format, and last valid document—including when the text is temporarily invalid or empty. Reloading restores that editing state; unfinished drafts from older versions also retain their original parsing rule. Older automatic-format drafts are assigned an explicit format only when that preserves their structure; invalid drafts keep their raw text and error until corrected or a format is explicitly chosen. Undo history remains session-only.
 
-All exported text and Markdown variants can be parsed again using their matching format. Auto-detect is a convenience, not a guarantee for syntax-like names: for example, choose Plain text to preserve a root literally named `- Notes`. Text parsing creates new IDs; JSON preserves IDs and is the preferred lossless project format.
+All exported text and Markdown variants can be parsed again using their matching format. Internal file-import detection is a convenience, not a guarantee for syntax-like names: for example, choose Plain text to preserve a root literally named `- Notes`. Text parsing creates new IDs; JSON preserves IDs and is the preferred lossless project format.
 
 ## Reuse in your application
 

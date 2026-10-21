@@ -29,13 +29,13 @@ test('serves every production asset below the Pages project path', async ({ page
 
 test('edits, reloads, and downloads every format from the production app', async ({ page }) => {
   await page.goto('./');
-  await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
+  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
   await expect(page.locator('.fs-editor-toolbar').getByLabel('Text format', { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Pages test\n  Assets\n    Images\n  Notes');
   await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document?.root?.name)).toBe('Pages test');
-  await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await page.reload();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Pages test', 'Assets', 'Images', 'Notes']);
   for (const [name, extension] of [['Folder ZIP', 'zip'], ['Plain text', 'txt'], ['Plain text', 'ascii'], ['Plain text', 'unicode'], ['Markdown', 'md'], ['Markdown', 'md-tree'], ['Project JSON', 'json'], ['Vector SVG', 'svg'], ['Image PNG', 'png']]) {

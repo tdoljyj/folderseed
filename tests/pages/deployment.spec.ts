@@ -46,7 +46,10 @@ test('edits, reloads, and downloads every format from the production app', async
   await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await page.reload();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Pages test', 'Assets', 'Images', 'Notes']);
+  await expect(page.locator('.fs-folder-select[aria-pressed="true"]')).toHaveCount(0);
   await page.locator('.fs-folder-select[title="Notes"]').click();
+  await expect(page.getByRole('group', { name: 'Folder actions for Notes', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit folder actions', exact: true }).click();
   const actions = page.getByRole('group', { name: 'Folder actions for Notes', exact: true });
   await expect(actions.getByRole('button')).toHaveCount(8);
   await actions.getByRole('button', { name: 'Move into previous sibling', exact: true }).click();

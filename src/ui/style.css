@@ -2051,17 +2051,66 @@
 .fs-bottom-drop-guide strong { font-weight: 600; }
 .fs-bottom-drop-guide > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Selected-folder actions keep their spatial meaning around the glyph and name. */
+/* Folder controls stay beside their label, and open only when explicitly requested. */
 .fs-visual-area { container-type: inline-size; }
 .fs-tree { height: 448px; }
-.fs-app .fs-folder-frame { position: relative; }
-.fs-app .fs-folder-frame.has-actions {
+.fs-app .fs-folder-frame {
   --fs-action-size: 36px;
   --fs-action-name-min: 72px;
+  position: relative;
+}
+.fs-app .fs-tree-row.has-edit-trigger:not(.has-actions) {
+  height: calc(var(--fs-action-size) + 2px);
+}
+.fs-app .fs-tree-row.has-edit-trigger:not(.has-actions) .fs-folder-select {
+  flex: 0 1 auto;
+}
+.fs-app .fs-tree-row.has-edit-trigger:not(.has-actions) .fs-folder-name {
+  min-width: 0;
+  max-width: none;
+}
+.fs-app .fs-tree-row.has-edit-trigger :is(.fs-root-label, .fs-row-count, .fs-drag-hint) {
+  display: none;
+}
+.fs-app .fs-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--fs-action-size);
+  width: var(--fs-action-size);
+  min-width: var(--fs-action-size);
+  height: var(--fs-action-size);
+  margin-inline-start: 4px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #526680;
+  background: transparent;
+}
+.fs-app .fs-edit-actions:hover:not(:disabled) {
+  color: #0055b3;
+  background: #dceaff;
+  border-color: #b9d2f3;
+}
+.fs-app .fs-edit-actions:disabled {
+  opacity: .3;
+  pointer-events: none;
+}
+.fs-app .fs-edit-actions.is-open {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 1px;
+  margin: 0;
+}
+.fs-app .fs-folder-frame.has-actions {
   --fs-action-min-width: calc(var(--fs-action-size) * 4 + var(--fs-action-name-min) + 2px);
-  --fs-action-columns: var(--fs-action-size) var(--fs-action-size) minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size);
+  --fs-action-margin: min(var(--fs-action-inset, 0px), max(0px, calc(100% - var(--fs-action-min-width))));
+  --fs-action-columns: var(--fs-action-size) var(--fs-action-size) minmax(var(--fs-action-name-min), max-content) var(--fs-action-size) var(--fs-action-size);
+  width: fit-content;
   min-width: var(--fs-action-min-width);
-  margin-inline-start: min(var(--fs-action-inset, 0px), max(0px, calc(100% - var(--fs-action-min-width))));
+  max-width: calc(100% - var(--fs-action-margin));
+  margin-inline-start: var(--fs-action-margin);
   padding-block: var(--fs-action-size);
 }
 .fs-app .fs-folder-frame.has-actions > .fs-tree-row {
@@ -2078,7 +2127,7 @@
   display: grid;
   grid-template-columns: var(--fs-action-size) minmax(0, 1fr);
   gap: 0;
-  width: 100%;
+  width: auto;
   height: 100%;
   min-width: 0;
   padding: 0;
@@ -2111,7 +2160,8 @@
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-columns: var(--fs-action-columns);
+  /* The row sets the intrinsic width; its text-free overlay fills the same name track. */
+  grid-template-columns: var(--fs-action-size) var(--fs-action-size) minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size);
   grid-template-rows: repeat(3, var(--fs-action-size));
   align-items: center;
   gap: 0;
@@ -2165,7 +2215,7 @@
 .fs-advanced-move { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #dde2ea; border-radius: 5px; background: #fff; color: #626268; font-size: 11px; flex-shrink: 0; }
 @media (max-width: 600px) {
   .fs-tree { height: 480px; }
-  .fs-app .fs-folder-frame.has-actions {
+  .fs-app .fs-folder-frame {
     --fs-action-size: 44px;
     --fs-action-name-min: 88px;
   }
@@ -2524,10 +2574,12 @@
 .fs-app[data-theme='dark'] .fs-context-actions {
   background: transparent;
 }
-.fs-app[data-theme='dark'] .fs-context-actions button {
+.fs-app[data-theme='dark'] .fs-context-actions button,
+.fs-app[data-theme='dark'] .fs-edit-actions {
   color: #c2d6f0;
 }
-.fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled) {
+.fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled),
+.fs-app[data-theme='dark'] .fs-edit-actions:hover:not(:disabled) {
   color: #e4efff;
   background: #34577e;
   border-color: #6b92bf;

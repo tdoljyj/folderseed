@@ -1,0 +1,70 @@
+/* Temporary visual study. Applied after the attached-reference baseline, not shipped. */
+.fs-app { --fs-ink:#1D1D1F; --fs-muted:#626268; --fs-primary:#0068D9; --fs-primary-dark:#0055B3; --fs-line:#E2E2E6; --fs-paper:#FFFFFF; --fs-surface:#F5F5F7; --fs-selection:#E8F1FD; background:#F5F5F7; color:#1D1D1F; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
+.fs-sidebar { width:240px; min-width:240px; background:#EEEEF0; border-color:#DEDEE2; padding:34px 20px 24px; gap:36px; }
+.fs-brand {font-weight:650;letter-spacing:-.7px;font-size:22px;gap:11px}
+.fs-brand-mark { width:42px;height:44px;border-radius:12px;background:#0068D9;box-shadow:0 2px 5px #0068D916; }
+.fs-brand-subtitle {font-size:10px;letter-spacing:0}
+.fs-eyebrow {letter-spacing:1.15px;font-weight:600}
+.fs-nav-active {background:#DDE8F6;border-color:transparent;color:#0059BA !important;border-radius:8px;padding:11px 12px}
+.fs-nav-dot {background:#0068D9}
+.fs-template {padding:12px 8px;border-radius:9px}
+.fs-template strong {font-weight:600}
+.fs-template:hover:not(:disabled) {background:#E4E4E8}
+.fs-privacy-card {background:#F7F7F9;border-color:#DEDEE2;border-radius:14px;padding:20px 15px}
+.fs-main {padding:0 40px}
+.fs-topbar {height:72px;border-color:#E0E0E5}
+.fs-heading {padding:39px 0 31px}
+.fs-heading h1 {font-size:34px;font-weight:650;letter-spacing:-1.3px;line-height:1.22;margin-top:10px}
+.fs-heading p {font-size:13px;letter-spacing:0;margin-top:12px}
+.fs-heading .fs-eyebrow {letter-spacing:1.6px;font-size:9px}
+.fs-button {border-color:#DCDCE1;border-radius:9px;min-height:38px;background:#FFFFFF;color:#424247;padding:9px 15px;box-shadow:0 1px 2px #00000004}
+.fs-button:hover:not(:disabled) {background:#F5F5F7;border-color:#C8C8CE}
+.fs-primary {background:#0068D9;border-color:#0068D9;color:#FFFFFF;box-shadow:0 2px 4px #0068D91A}
+.fs-primary:hover:not(:disabled) {background:#0055B3;border-color:#0055B3}
+.fs-workspace-grid {gap:22px}
+.fs-panel {border-color:#E2E2E6;border-radius:16px;box-shadow:0 3px 14px #1D1D1F04}
+.fs-panel-heading {height:66px;padding:0 22px;border-color:#EFEFF2}
+.fs-panel h2 {font-size:15px;font-weight:600;letter-spacing:-.35px}
+.fs-step {background:#F0F0F3;color:#626268;border-radius:7px;width:26px;height:26px;font-weight:600}
+.fs-editor-tabs {height:35px;margin:14px 20px 0;padding:3px;gap:3px;border:0;background:#F0F0F3;border-radius:8px;align-self:flex-start;width:max-content}
+.fs-editor-tabs button {border:1px solid transparent;border-radius:6px;padding:0 12px;font-size:11px;color:#626268;gap:6px}
+.fs-editor-tabs button[aria-selected="true"] {color:#1D1D1F;border-color:#DDDEE2;background:#FFFFFF;box-shadow:0 1px 3px #1D1D1F12;font-weight:600}
+.fs-tree-help {height:43px}
+.fs-tree {height:344px;padding-bottom:9px}
+.fs-tree-row {height:34px;color:#37373D;border-radius:7px}
+.fs-tree-row.is-selected {background:#E8F1FD;border-color:#CEDFF5}
+.fs-root-label {border-color:#CEDFF5;font-size:8px;color:#526680}
+.fs-add-folder {margin:7px 0 16px;min-height:37px;background:#FAFAFC;border-color:#D6D6DD;color:#424247;border-radius:8px}
+.fs-add-folder:hover {background:#F1F5FC;border-color:#88B6E9}
+.fs-selection-tools {background:#FAFAFC;border-color:#EEEEF2;padding:12px 19px 14px}
+.fs-tool-buttons button {border-color:#E0E0E5;border-radius:6px;padding:6px 8px;color:#626268}
+.fs-selected-path {margin-bottom:8px}
+.fs-preview-toolbar {height:63px;border-color:#EFEFF2;padding:0 20px}
+.fs-segmented {background:#F0F0F3;border-radius:7px;padding:3px;gap:2px}
+.fs-segmented button {border-radius:5px;padding:4px 10px}
+.fs-segmented button[aria-pressed="true"] {background:#FFFFFF;border-color:#DDDEE2;color:#1D1D1F;box-shadow:0 1px 3px #1D1D1F10}
+.fs-preview-canvas {background-color:#FCFCFD;background-image:none;height:459px;max-height:459px;padding:24px 26px}
+.fs-preview-row {height:34px;color:#37373D}
+.fs-preview-root {color:#1D1D1F;font-weight:600;margin-bottom:8px}
+.fs-preview-branch {border-color:#DCDCE2}
+.fs-preview-stats {height:48px;border-color:#EFEFF2}
+.fs-preview-root-badge {font-size:8px;letter-spacing:.65px}
+.fs-export {margin-top:24px;padding:23px 23px 0}
+.fs-export-heading {margin-bottom:20px}
+.fs-export-options {gap:10px}
+.fs-export-options button {border-color:#E0E0E5;border-radius:10px;padding:14px 12px 12px;min-height:94px}
+.fs-export-options button.is-active {background:#F2F7FE;border-color:#8EB9EB;box-shadow:0 0 0 1px #0068D908}
+.fs-export-options button.is-active .fs-format-icon {color:#0068D9}
+.fs-export-options button.is-active .fs-radio-dot {border-color:#0068D9}
+.fs-export-bottom {padding:20px 0;gap:20px}
+.fs-download {min-width:156px;border-radius:9px}
+.fs-footer {padding:23px 0}
+.fs-folder-icon.root,.fs-preview-root .fs-preview-folder {color:#4384C6}
+.fs-folder-icon.root svg,.fs-preview-root .fs-preview-folder svg {fill:#DEECFA}
+.fs-folder-icon,.fs-preview-folder {color:#A18445}
+.fs-folder-icon svg,.fs-preview-folder svg {fill:#F7EBCB}
+.fs-dialog {border-radius:18px;border-color:#DFDFE5;box-shadow:0 20px 70px #1D1D1F24}
+.fs-app button:focus-visible,.fs-app select:focus-visible,.fs-app input:focus-visible,.fs-app textarea:focus-visible {outline-color:#0068D9}
+@media(max-width:1200px){.fs-sidebar{width:215px;min-width:215px;padding-left:14px;padding-right:14px}.fs-main{padding:0 24px}.fs-heading h1{font-size:29px}.fs-export-options button{padding:12px 8px}.fs-editor-tabs{margin-left:13px;margin-right:13px}.fs-editor-tabs button{padding:0 9px}}
+@media(max-width:800px){.fs-sidebar{width:100%;min-width:0;padding:17px 21px;gap:0;background:#F5F5F7;border-bottom-color:#E0E0E5}.fs-main{padding:0 20px}.fs-topbar{height:49px}.fs-heading{padding:27px 0 24px}.fs-heading h1{font-size:29px}.fs-brand-mark{width:38px;height:40px}.fs-heading p{font-size:12px}.fs-mobile-templates select{border-radius:8px;border-color:#DCDCE1;background:#FFFFFF}}
+@media(max-width:600px){.fs-main{padding:0 17px}.fs-heading{gap:16px}.fs-heading h1{font-size:30px;letter-spacing:-1.1px}.fs-heading p{line-height:1.65}.fs-workspace-grid{gap:20px}.fs-panel-heading{height:60px;padding:0 18px}.fs-panel h2{font-size:14px}.fs-editor-tabs{margin:14px 16px 0}.fs-editor-tabs button{padding:0 11px}.fs-tree{height:344px}.fs-tree-row{height:34px}.fs-preview-canvas{height:385px;max-height:385px;padding:22px}.fs-preview-toolbar{height:59px;padding:0 16px}.fs-preview-stats{height:46px;padding:0 17px}.fs-export{padding:20px 16px 0}.fs-export-heading{margin-bottom:16px}.fs-export-options{gap:8px}.fs-export-options button{min-height:92px;padding:12px 9px}.fs-export-bottom{padding:18px 0}.fs-download{min-height:44px}.fs-button{white-space:nowrap}.fs-footer{padding:22px 0}}

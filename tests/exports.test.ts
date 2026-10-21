@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { unzipSync } from 'fflate';
-import { createDocument, addFolder, flatten, parseIndented, parseJSON, type DirectoryDocument } from '../src/core';
+import { createDocument, addFolder, flatten, parseIndented, parseText, parseJSON, type DirectoryDocument } from '../src/core';
 import { createExport, renderSVG } from '../src/exports';
 
 function fixture(): DirectoryDocument {
@@ -53,20 +53,79 @@ describe('directory exports', () => {
     expect(output.blob.type).toContain('text/plain');
   });
 
-  it('Markdown uses a fenced plain-text tree and can be imported again', async () => {
+  it('Markdown tree keeps the fenced Unicode tree as a separate export choice', async () => {
     const document = fixture();
-    const output = await createExport(document, 'md');
+    const output = await createExport(document, 'md-tree');
     const text = await output.blob.text();
     expect(text.startsWith('```text\n')).toBe(true);
     expect(paths(parseIndented(text))).toEqual(paths(document));
   });
 
-  it('Markdown safely fences folder names containing backtick runs', async () => {
+  it('Markdown tree safely fences folder names containing backtick runs', async () => {
     const document = createDocument('```');
-    const output = await createExport(document, 'md');
+    const output = await createExport(document, 'md-tree');
     const text = await output.blob.text();
     expect(text.startsWith('````text\n')).toBe(true);
     expect(paths(parseIndented(text))).toEqual(paths(document));
+  });
+
+
+  it.each([
+    { format: 'txt', syntax: 'plain', suffix: '.txt', mime: 'text/plain' },
+    { format: 'md', syntax: 'markdown', suffix: '.md', mime: 'text/markdown' },
+    { format: 'md-tree', syntax: 'markdown', suffix: '.tree.md', mime: 'text/markdown' },
+    { format: 'ascii', syntax: 'ascii', suffix: '.ascii.txt', mime: 'text/plain' },
+    { format: 'unicode', syntax: 'unicode', suffix: '.tree.txt', mime: 'text/plain' },
+  ] as const)('$format roundtrips with explicit and automatic parsing', async ({ format, syntax, suffix, mime }) => {
+    const document = fixture();
+    const output = await createExport(document, format);
+    const text = await output.blob.text();
+    expect(output.filename).toBe(`My project${suffix}`);
+    expect(output.blob.type).toBe(`${mime};charset=utf-8`);
+    expect(paths(parseText(text, syntax))).toEqual(paths(document));
+    expect(paths(parseText(text, 'auto'))).toEqual(paths(document));
+  });
+
+  it('Markdown exports a nested list rather than a fenced diagram', async () => {
+    const output = await createExport(fixture(), 'md');
+    const text = await output.blob.text();
+    expect(text).toMatch(/^- /);
+    expect(text).toMatch(/\n  - /);
+    expect(text).not.toMatch(/^```/);
+  });
+
+  it('ASCII and Unicode exports use distinct connector characters', async () => {
+    const ascii = await (await createExport(fixture(), 'ascii')).blob.text();
+    const unicode = await (await createExport(fixture(), 'unicode')).blob.text();
+    expect(ascii).not.toMatch(/[\u2500-\u257f]/u);
+    expect(ascii).toContain('Photos');
+    expect(unicode).toMatch(/[\u251c\u2514]/u);
+  });
+
+  it.each([
+    { format: 'ascii', suffix: '.ascii.txt', syntax: 'ascii' },
+    { format: 'unicode', suffix: '.tree.txt', syntax: 'unicode' },
+    { format: 'md-tree', suffix: '.tree.md', syntax: 'markdown' },
+    { format: 'md', suffix: '.md', syntax: 'markdown' },
+  ] as const)('$format preserves its full extension within the UTF-8 filename cap', async ({ format, suffix, syntax }) => {
+    const document = createDocument('\u540d'.repeat(85));
+    const output = await createExport(document, format);
+    expect(new TextEncoder().encode(output.filename).byteLength).toBeLessThanOrEqual(255);
+    expect(output.filename.endsWith(suffix)).toBe(true);
+    expect(paths(parseText(await output.blob.text(), syntax))).toEqual(paths(document));
+    expect(document.root.name).toHaveLength(85);
+  });
+
+  it.each(['txt', 'md', 'md-tree', 'ascii', 'unicode'] as const)('%s preserves names with Markdown punctuation and backticks', async (format) => {
+    let document = createDocument('Project [draft]');
+    document = addFolder(document, document.root.id, '_notes_ & `ideas`');
+    document = addFolder(document, document.root.id, '~~~');
+    const output = await createExport(document, format);
+    expect(paths(parseText(await output.blob.text(), 'auto'))).toEqual(paths(document));
+  });
+
+  it('unknown export formats fail explicitly', async () => {
+    await expect(createExport(fixture(), 'unsupported' as never)).rejects.toThrow('Unsupported export format');
   });
 
   it('versioned JSON keeps node IDs and structure exactly', async () => {
@@ -97,9 +156,18 @@ describe('directory exports', () => {
 
   it('all export formats validate unsafe documents before producing output', async () => {
     const invalid = { version: 1, root: { id: 'unsafe', name: '../outside', children: [] } } as DirectoryDocument;
-    for (const format of ['zip', 'txt', 'md', 'json', 'svg', 'png'] as const) {
+    for (const format of ['zip', 'txt', 'md', 'md-tree', 'ascii', 'unicode', 'json', 'svg', 'png'] as const) {
       await expect(createExport(invalid, format)).rejects.toThrow();
     }
+  });
+
+
+  it.each(['md', 'md-tree', 'ascii', 'unicode'] as const)('%s rejects models exceeding the folder limit', async (format) => {
+    const oversized = createDocument('Too many folders');
+    oversized.root.children = Array.from({ length: 500 }, (_, index) => ({
+      id: `folder-${index}`, name: `Folder ${index}`, children: [],
+    }));
+    await expect(createExport(oversized, format)).rejects.toThrow();
   });
 
   it('PNG refuses oversized canvases before allocating an image', async () => {

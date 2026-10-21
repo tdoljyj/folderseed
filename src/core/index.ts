@@ -12,6 +12,7 @@ export interface DirectoryDocument {
 
 export type Indent = 2 | 4 | 'tabs';
 export type ParseIndent = Indent | 'auto';
+export type TextFormat = 'auto' | 'plain' | 'markdown' | 'ascii' | 'unicode';
 export interface FlatFolder {
   node: FolderNode;
   parentId: string | null;
@@ -207,6 +208,207 @@ export function parseIndented(text: string, indent: ParseIndent = 'auto'): Direc
     previousDepth = depth;
   }
   return { version: 1, root: root! };
+}
+
+type ExplicitTextFormat = Exclude<TextFormat, 'auto'>;
+interface ParsedFolder { name: string; depth: number; line: number }
+const TEXT_FORMATS: readonly TextFormat[] = ['auto', 'plain', 'markdown', 'ascii', 'unicode'];
+const FENCE_PATTERN = /^(`{3,}|~{3,})([a-zA-Z0-9_-]*)[ \t]*$/;
+
+function rawSourceLines(text: string): SourceLine[] {
+  return text.replace(/^\uFEFF/u, '').replace(/\r\n?/g, '\n').split('\n')
+    .map((text, index) => ({ text, line: index + 1 })).filter(source => source.text.trim().length > 0);
+}
+
+function locateFence(lines: SourceLine[]) {
+  const start = lines.findIndex(source => FENCE_PATTERN.test(source.text));
+  if (start < 0) return undefined;
+  const match = lines[start].text.match(FENCE_PATTERN)!;
+  const delimiter = match[1];
+  const end = lines.findIndex((source, index) => index > start
+    && source.text[0] === delimiter[0] && source.text.trim().length >= delimiter.length
+    && /^(`+|~+)[ \t]*$/.test(source.text));
+  return { start, end, language: match[2].toLowerCase() };
+}
+
+function inferTextFormat(lines: SourceLine[]): ExplicitTextFormat {
+  if (!lines.length) return 'plain';
+  const fence = locateFence(lines);
+  if (fence && fence.end >= 0) return 'markdown';
+  // Check the first child before the root: a tree root may literally begin with '- '.
+  if (lines.length > 1) {
+    if (/^[ \t]*[├└│]/u.test(lines[1].text)) return 'unicode';
+    if (/^[ \t]*(?:\||`--|\+--)/.test(lines[1].text)) return 'ascii';
+  }
+  if (/^[-+*](?:[ \t]|$)/.test(lines[0].text)) return 'markdown';
+  if (fence && (fence.start > 0 || lines.slice(fence.start + 1).some(source => !/^[ \t]/.test(source.text)))) return 'markdown';
+  return 'plain';
+}
+
+/** A syntax hint, not validation. Choose 'plain' explicitly for ambiguous literal punctuation. */
+export function detectTextFormat(text: string): ExplicitTextFormat {
+  checkSize(text);
+  return inferTextFormat(rawSourceLines(text));
+}
+
+function decodeMarkdownName(label: string, line: number): string {
+  if (label.startsWith('`')) {
+    const delimiter = /^`+/.exec(label)![0];
+    const closing = /`+$/.exec(label)?.[0];
+    if (closing !== delimiter || label.length < delimiter.length * 2) {
+      fail('MARKDOWN_NAME', 'Close the code span around this folder name, or escape a literal backtick with a backslash.', line);
+    }
+    let contents = label.slice(delimiter.length, -delimiter.length);
+    if ((contents.match(/`+/g) ?? []).some(run => run.length === delimiter.length)) {
+      fail('MARKDOWN_NAME', 'Use one code span for the entire name, with a delimiter longer than any backtick run inside it.', line);
+    }
+    // CommonMark removes one surrounding space when both sides have one.
+    if (contents.startsWith(' ') && contents.endsWith(' ') && contents.trim()) contents = contents.slice(1, -1);
+    return contents;
+  }
+  // Decode only Markdown punctuation escapes. Unknown escapes stay literal and are validated.
+  return label.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/g, '$1');
+}
+
+function parseIndentedRecords(lines: SourceLine[], indent: ParseIndent, markdown: boolean): ParsedFolder[] {
+  if (lines.length > LIMITS.nodes) fail('TOO_MANY_FOLDERS', `A project can contain at most ${LIMITS.nodes} folders.`, lines[LIMITS.nodes].line);
+  let detected: Indent | undefined = indent === 'auto' ? undefined : indent;
+  return lines.map(source => {
+    const prefix = /^[ \t]*/.exec(source.text)![0];
+    let name = source.text.slice(prefix.length);
+    if (markdown) {
+      const item = /^[-+*](?:[ \t]+(.*))?$/.exec(name);
+      if (!item) fail('MARKDOWN_SYNTAX', 'Use one folder per list item, beginning with -, +, or *. Ordered lists and paragraph continuations are not supported.', source.line);
+      name = decodeMarkdownName(item[1] ?? '', source.line);
+    }
+    if (prefix.includes(' ') && prefix.includes('\t')) fail('MIXED_INDENT', 'Do not mix spaces and tabs in an indentation prefix.', source.line);
+    let depth = 0;
+    if (prefix.length) {
+      const tabs = prefix.includes('\t');
+      if (!detected) {
+        if (!tabs && prefix.length !== 2 && prefix.length !== 4) fail('INVALID_INDENT', 'Indent the first child with 2 or 4 spaces, or one tab.', source.line);
+        detected = tabs ? 'tabs' : prefix.length as 2 | 4;
+      }
+      if ((detected === 'tabs') !== tabs) fail('MIXED_INDENT', 'Use either spaces or tabs consistently throughout the text.', source.line);
+      if (detected !== 'tabs' && prefix.length % detected !== 0) fail('INVALID_INDENT', `Indentation must be a multiple of ${detected} spaces.`, source.line);
+      depth = detected === 'tabs' ? prefix.length : prefix.length / detected;
+    }
+    return { name, depth, line: source.line };
+  });
+}
+
+function parseTreeRecords(lines: SourceLine[], format: 'ascii' | 'unicode'): ParsedFolder[] {
+  if (lines.length > LIMITS.nodes) fail('TOO_MANY_FOLDERS', `A project can contain at most ${LIMITS.nodes} folders.`, lines[LIMITS.nodes].line);
+  const pattern = format === 'ascii' ? /^((?:\|   |    )*)(?:\|-- |`-- |\+-- )(.*)$/ : /^((?:│   |    )*)(?:├── |└── )(.*)$/u;
+  return lines.map((source, index) => {
+    if (index === 0) {
+      if (/^[ \t]/.test(source.text)) fail('ROOT_INDENT', 'The root folder must not be indented.', source.line);
+      return { name: source.text, depth: 0, line: source.line };
+    }
+    const match = pattern.exec(source.text);
+    if (!match) fail('TREE_FORMAT', `Invalid ${format === 'ascii' ? 'ASCII' : 'Unicode'} tree. Use complete branch markers and consistent four-character connector columns.`, source.line);
+    return { name: match[2], depth: match[1].length / 4 + 1, line: source.line };
+  });
+}
+
+function buildTextDocument(records: ParsedFolder[]): DirectoryDocument {
+  if (!records.length) fail('EMPTY_TEXT', 'Enter a root folder name.');
+  const stack: FolderNode[] = [];
+  let root: FolderNode | undefined;
+  let previousDepth = 0;
+  records.forEach((record, index) => {
+    const { depth, line } = record;
+    if (index === 0 && depth !== 0) fail('ROOT_INDENT', 'The root folder must not be indented.', line);
+    if (index > 0 && depth === 0) fail('MULTIPLE_ROOTS', 'Use one root folder. Indent its child folders.', line);
+    if (depth > previousDepth + 1) fail('INDENT_JUMP', 'Do not skip a folder level. Increase indentation by one level at a time.', line);
+    if (depth > LIMITS.depth) fail('TOO_DEEP', `A tree cannot exceed ${LIMITS.depth} levels below its root.`, line);
+    if (index >= LIMITS.nodes) fail('TOO_MANY_FOLDERS', `A project can contain at most ${LIMITS.nodes} folders.`, line);
+    let name = record.name;
+    if (name.endsWith('/') && !name.endsWith('//')) name = name.slice(0, -1);
+    const node: FolderNode = { id: newId(), name: validateName(name, line), children: [] };
+    if (depth === 0) root = node;
+    else {
+      const parent = stack[depth - 1];
+      if (!parent) fail('INDENT_JUMP', 'This folder is missing its parent level.', line);
+      if (parent.children.some(child => nameKey(child.name) === nameKey(node.name))) fail('DUPLICATE_NAME', `A folder named “${node.name}” already exists here (names are case-insensitive).`, line);
+      parent.children.push(node);
+    }
+    stack[depth] = node;
+    stack.length = depth + 1;
+    previousDepth = depth;
+  });
+  return { version: 1, root: root! };
+}
+
+function parseTextLines(lines: SourceLine[], format: ExplicitTextFormat, indent: ParseIndent): DirectoryDocument {
+  if (format === 'markdown') {
+    const fence = locateFence(lines);
+    if (fence) {
+      if (fence.end < 0) fail('MARKDOWN_FENCE', 'Please provide a complete Markdown code block with matching fences.', lines[fence.start].line);
+      if (lines.slice(fence.end + 1).some(source => FENCE_PATTERN.test(source.text))) fail('MARKDOWN_FENCE', 'Import only one Markdown code block at a time.', lines[fence.end].line);
+      const body = lines.slice(fence.start + 1, fence.end);
+      const { language } = fence;
+      if (!['', 'text', 'txt', 'tree', 'plain', 'plaintext', 'ascii', 'unicode', 'markdown', 'md'].includes(language)) {
+        fail('MARKDOWN_FENCE', 'Use a text, plain, ascii, unicode, or markdown code block for a directory structure.', lines[fence.start].line);
+      }
+      const inferred = inferTextFormat(body);
+      const payloadFormat: ExplicitTextFormat = language === 'plain' || language === 'plaintext' ? 'plain'
+        : language === 'ascii' || language === 'unicode' ? language
+          : language === 'markdown' || language === 'md' ? 'markdown' : inferred === 'markdown' ? 'plain' : inferred;
+      // A fence-like root inside a larger fence is data, not another Markdown document.
+      if (payloadFormat === 'markdown') return buildTextDocument(parseIndentedRecords(body, indent, true));
+      return parseTextLines(body, payloadFormat, indent);
+    }
+    return buildTextDocument(parseIndentedRecords(lines, indent, true));
+  }
+  return buildTextDocument(format === 'plain' ? parseIndentedRecords(lines, indent, false) : parseTreeRecords(lines, format));
+}
+
+/** Parse an explicit syntax without changing literal plain-text prefixes; auto is a heuristic. */
+export function parseText(text: string, format: TextFormat = 'auto', indent: ParseIndent = 'auto'): DirectoryDocument {
+  checkSize(text);
+  if (!TEXT_FORMATS.includes(format)) fail('INVALID_FORMAT', 'Choose auto, plain, markdown, ascii, or unicode text.');
+  if (!['auto', 2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose automatic indentation, 2 spaces, 4 spaces, or tabs.');
+  const lines = rawSourceLines(text);
+  return parseTextLines(lines, format === 'auto' ? inferTextFormat(lines) : format, indent);
+}
+
+/** Nested Markdown lists with whole-name code spans, safe for punctuation and backticks. */
+export function formatMarkdown(doc: DirectoryDocument, indent: Indent = 2): string {
+  if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
+  const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
+  return flatten(doc).map(({ node, depth }) => {
+    const longestRun = Math.max(0, ...(node.name.match(/`+/g) ?? []).map(run => run.length));
+    const delimiter = '`'.repeat(longestRun + 1);
+    const padding = node.name.startsWith('`') || node.name.endsWith('`') ? ' ' : '';
+    return `${unit.repeat(depth)}- ${delimiter}${padding}${node.name}${padding}${delimiter}`;
+  }).join('\n');
+}
+
+/** Four-column ASCII tree using |--, `--, and | continuation guides. */
+export function formatASCII(doc: DirectoryDocument): string {
+  const { root } = validateDocument(doc);
+  const lines = [root.name];
+  function visit(node: FolderNode, prefix: string): void {
+    node.children.forEach((child, index) => {
+      const last = index === node.children.length - 1;
+      lines.push(`${prefix}${last ? '`-- ' : '|-- '}${child.name}`);
+      visit(child, `${prefix}${last ? '    ' : '|   '}`);
+    });
+  }
+  visit(root, '');
+  return lines.join('\n');
+}
+
+export function formatText(doc: DirectoryDocument, format: ExplicitTextFormat = 'plain', indent: Indent = 2): string {
+  if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
+  switch (format) {
+    case 'plain': return formatIndented(doc, indent);
+    case 'markdown': return formatMarkdown(doc, indent);
+    case 'ascii': return formatASCII(doc);
+    case 'unicode': return formatTree(doc);
+    default: return fail('INVALID_FORMAT', 'Choose plain, markdown, ascii, or unicode for text output.');
+  }
 }
 
 export function flatten(doc: DirectoryDocument): FlatFolder[] {

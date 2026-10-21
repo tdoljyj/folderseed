@@ -37,13 +37,25 @@ Use `validateDocument` at trust boundaries. Never construct a ZIP path directly 
 
 ### Parsing and formatting
 
-- `parseIndented(text, indent?)`: accepts `'auto'`, `2`, `4`, or `'tabs'`; also accepts generated Unicode tree text and a single fenced Markdown block.
-- `formatIndented(document, indent?)`: formats with two spaces by default.
+- `TextFormat`: `'auto' | 'plain' | 'markdown' | 'ascii' | 'unicode'`.
+- `parseText(text, format = 'auto', indent = 'auto')`: parses an explicitly selected text format or detects it automatically. Input indentation uses `ParseIndent`: `'auto' | 2 | 4 | 'tabs'`.
+- `formatText(document, format = 'plain', indent = 2)`: serializes a document; output format excludes `'auto'`, and output indentation uses `Indent`: `2 | 4 | 'tabs'`.
+- `detectTextFormat(text)`: returns a detected format other than `'auto'`.
+- `formatMarkdown(document, indent = 2)` and `formatASCII(document)`: dedicated format helpers.
+- `parseIndented(text, indent?)` and `formatIndented(document, indent?)`: compatibility helpers for existing integrations; two spaces remain the default output indentation.
 - `formatTree(document)`: produces readable Unicode connectors.
 - `parseJSON(text)` and `serializeJSON(document)`: the versioned, ID-preserving project format.
 - `flatten(document)`: returns nodes with `parentId`, `depth`, and slash-separated relative `path`.
 
-Automatic indentation detection uses the first indented line, then enforces the detected style. It does not infer missing levels or silently repair mixed indentation. Errors retain source line numbers where possible.
+Automatic indentation detection uses the first indented line, then enforces the detected style. It supports two spaces, four spaces, or tabs and does not infer missing levels or silently repair mixed indentation. Errors retain source line numbers where possible.
+
+The text parser supports plain outlines, Markdown unordered lists (`-`, `*`, or `+` markers), ASCII connectors (`|--`, `` `-- ``, or `+--`), and Unicode connectors (`├──` and `└──`). Markdown lists contain one root and use consistent two-space, four-space, or tab indentation; ordered lists are rejected.
+
+Automatic format detection is heuristic. Explicit format selection resolves ambiguity instead of forcing every input through a guessed grammar. For example, a root literally named `- Notes` needs explicit plain parsing to avoid being interpreted as a list. Plain mode never strips list markers, branch characters, or fences. Round-trip a text representation with its matching format; use JSON when IDs and unambiguous restoration matter.
+
+Fenced plain, ASCII, and Unicode text remains supported through automatic or Markdown parsing. Explicit ASCII/Unicode formats expect bare trees, not surrounding Markdown fences. Canonical ASCII output uses `|--` for non-final branches, `` `-- `` for the final branch, `|   ` for continuing ancestors, and four spaces otherwise.
+
+Markdown output wraps every folder name in a complete code span. Its delimiter is longer than any backtick run in the name, with padding when required by code-span syntax. Parsing decodes whole-name code spans and standard backslash escapes of punctuation; otherwise labels remain literal folder names, not rendered Markdown or executable markup.
 
 ### Immutable editing
 
@@ -66,14 +78,19 @@ const { blob, filename } = await createExport(document, 'zip');
 
 Download filenames retain their format extension and are shortened when necessary to fit 255 UTF-8 bytes. This does not rename the root folder inside the document or ZIP.
 
-`ExportFormat` is `'zip' | 'txt' | 'md' | 'json' | 'svg' | 'png'`. Every format validates the input before generating output. The caller owns the download interaction.
+`ExportFormat` is `'zip' | 'txt' | 'md' | 'md-tree' | 'ascii' | 'unicode' | 'json' | 'svg' | 'png'`. Every format validates the input before generating output. The caller owns the download interaction.
 
 - **ZIP** uses `fflate`; each node has a zero-byte archive entry ending in `/` with directory metadata. No files, scripts, or placeholder contents are included.
-- **TXT** is a two-space outline.
-- **Markdown** uses a fenced tree and chooses a fence length that safely contains backticks in folder names.
+- **TXT** (`txt`, `.txt`) is a two-space plain outline.
+- **ASCII tree** (`ascii`, `.ascii.txt`) uses ASCII connectors while preserving Unicode folder names as UTF-8 text.
+- **Unicode tree** (`unicode`, `.tree.txt`) uses Unicode connectors.
+- **Markdown list** (`md`, `.md`) is a nested bullet list.
+- **Markdown tree** (`md-tree`, `.tree.md`) preserves the earlier fenced Unicode-tree export and chooses a fence length that safely contains backticks in folder names.
 - **JSON** is the versioned document.
 - **SVG** is XML-escaped vector markup with no scripts, external resources, or `foreignObject`. `renderSVG(document)` exposes the SVG text and dimensions.
 - **PNG** rasterizes the SVG using browser image and canvas APIs. It needs a browser; the other exports do not require the DOM. Dimension and pixel limits protect against unsupported or excessive canvases.
+
+The UI keeps six top-level format cards: TXT exposes plain/ASCII/Unicode subtypes, and Markdown exposes list/fenced-tree subtypes. Compound download extensions are retained when a long root name must be shortened.
 
 ## React editor (`src/ui/FolderEditor.tsx`)
 
@@ -87,13 +104,29 @@ interface FolderEditorProps {
 }
 ```
 
-The editor owns its document and editing history (up to 50 committed changes in memory). Text editing is staged: valid drafts update preview, but only applying the draft changes the committed document. Invalid drafts leave the committed preview intact. Applying or discarding is required before export and other structure-changing actions. `initialDocument` is an initialization value, not a controlled prop. `onChange` reports the initialized document and valid committed changes, not text drafts. Do not use the callback to repeatedly remount the editor unless resetting selection and history is intentional.
+The editor owns its document and editing history (up to 50 committed changes in memory). `initialDocument` is an initialization value, not a controlled prop. `onChange` reports the initialized document and valid committed changes, including automatically committed text edits; it does not emit invalid raw text. Do not use the callback to repeatedly remount the editor unless resetting selection and history is intentional.
+
+### File import dispatch
+
+File extensions select the parser before validation: `.json` uses `parseJSON`; `.ascii.txt`/`.ascii` use ASCII; `.tree.txt`/`.tree` use Unicode; `.md`/`.markdown`/`.tree.md` use Markdown; ordinary `.txt` uses explicit plain text. Unknown extensions use automatic detection. Compound tree suffixes are checked before the generic `.txt` suffix.
+
+This deliberately preserves literal names in FolderSeed's plain-text exports, including a root starting with `- `. A tree-style `.txt` from another source should be pasted with the correct format selected or renamed to a matching tree suffix; it is not silently guessed during plain-text file import.
+
+### Text state and automatic commits
+
+Raw text is separate from the last valid `DirectoryDocument`. Valid text updates the preview immediately and commits after a 350 ms quiet period. Automatic commits preserve the user's raw formatting and cursor position instead of regenerating the textarea. Input-method composition suppresses commits and keeps the last valid preview until composition finishes.
+
+Invalid text remains in the textarea with its error and does not overwrite the last valid model. It blocks export, switching to visual editing, import, and templates until corrected or explicitly reverted. **Revert text** regenerates the selected style from the last valid model; it is an intentional discard action, never an automatic repair.
+
+Export, copy, and editor-tab transitions flush valid pending text before operating. Copy always produces the Unicode tree used by the text-tree preview. Valid format changes flush and convert the current document; choosing Auto-detect keeps the raw representation. For invalid input, format selection changes interpretation without replacing the raw text, allowing users to fix a wrong format choice.
+
+Debounced typing bursts are history steps. Pending timers must not commit stale text after a newer edit, undo/redo, import, or other document replacement. Undo history is in-memory and is not restored after a reload.
 
 Styles use the `.fs-app` root and namespaced `.fs-*` classes; import `src/ui/style.css` for source integration or `folderseed/styles.css` for the built package once in the host. The source example in `examples/embedding.tsx` disables browser persistence and keeps a host-level snapshot.
 
 ### Persistence
 
-The standalone editor keeps its draft in browser `localStorage` under `folderseed:draft:v1`. Set a different `storageKey` to isolate separate embedded projects, or set it to `false` to opt out. A host that persists documents should validate them on load and use JSON exports for portable backups.
+The standalone editor keeps its draft in browser `localStorage` under `folderseed:draft:v1`. The saved state includes raw text (including invalid or empty text), mode, format, indentation, and the last valid document; reloading restores the editing state rather than silently normalizing it. Set a different `storageKey` to isolate separate embedded projects, or set it to `false` to opt out. A host that persists documents should validate them on load and use JSON exports for portable backups.
 
 Storage can be unavailable or cleared. It is not cloud synchronization, transactional multi-tab editing, or a guaranteed backup. Treat document changes as private user data when integrating with a host application's persistence.
 

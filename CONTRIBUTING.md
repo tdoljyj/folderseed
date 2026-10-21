@@ -40,7 +40,18 @@ Keep the core independent of the DOM and UI framework. Do not add a backend, ana
 4. Screenshots for visible UI changes, with narrow and wide layouts checked.
 5. Honest verification notes: distinguish tests that passed from checks that were not run.
 
-Preserve 2-space, 4-space, and tab indentation during parsing. Never silently flatten an invalid tree. Treat imported JSON, text, and folder names as untrusted input. Never bypass the document validator to make an export succeed.
+Preserve 2-space, 4-space, and tab indentation during parsing. Cover plain outlines, Markdown lists, ASCII trees, Unicode trees, and fenced text with round-trip tests. Automatic detection must not silently flatten an invalid tree; explicit format selection must remain available for ambiguous input. Treat imported JSON, text, and folder names as untrusted input. Never bypass the document validator to make an export succeed.
+
+Text-editor changes must preserve these guarantees:
+
+- Valid edits commit after the 350 ms quiet period without reformatting raw text or moving the cursor.
+- Input-method composition does not commit an unfinished value.
+- Invalid edits retain their text and the last valid model; only an explicit revert may discard them.
+- Export, copy, and tab-switch actions flush valid pending changes instead of using stale state.
+- Reload restores raw text, format, indentation, and the last valid document, including invalid drafts.
+- Undo/redo groups typing bursts and does not leave stale timers that overwrite newer changes.
+
+Test rapid edits, immediate export, format changes, invalid drafts, composition events, reloads, and undo/redo around pending updates. Browser tests should check actual download contents as well as the visible preview.
 
 Keep all public documentation, comments, UI copy, issue templates, and commit messages in English. Unicode folder names and internationalization test fixtures are welcome.
 

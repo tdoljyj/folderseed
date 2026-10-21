@@ -10,26 +10,31 @@ No account, backend, API key, or command-line knowledge is needed to use the edi
 
 - Add, rename, delete, reorder, and move folders in a visual editor.
 - Undo and redo changes, start from a template, and keep a local draft between visits.
-- Edit indented text with automatic detection of **2 spaces, 4 spaces, or tabs**. Invalid indentation is reported instead of silently flattening your structure.
-- Preview the structure as you work.
+- Edit plain outlines, Markdown lists, or ASCII/Unicode trees. Plain-text indentation supports **2 spaces, 4 spaces, or tabs**.
+- See valid text changes in the preview immediately; the folder model updates automatically after a short pause. Invalid input is reported instead of silently flattening your structure.
 - Import text, Markdown, or a versioned JSON document.
-- Export ZIP, TXT, Markdown, JSON, SVG, or PNG.
+- Export actual folders as ZIP, or choose plain text, ASCII/Unicode trees, Markdown lists/trees, JSON, SVG, or PNG.
 - Reuse the framework-independent TypeScript core or embed the React editor in another application.
 
 FolderSeed currently models **folders only**, under one root folder. It does not create files or execute scripts.
 
 ## Choose the right export
 
+The six export cards remain ZIP, Plain text, Markdown, JSON, SVG, and PNG. **Plain text** offers Indented text, ASCII tree, or Unicode tree; **Markdown** offers Nested list or Fenced tree.
+
 | Format | What you get | Import again? |
 | --- | --- | --- |
 | **ZIP** | The actual empty folders, including the root and every nested folder. Extract the archive to create them on your device. | No ZIP import |
 | **TXT** | A plain-text, two-space-indented outline. | Yes |
-| **Markdown** | A fenced, readable directory tree for documentation. | Yes |
+| **ASCII tree** | A connector-based tree in an `.ascii.txt` file. | Yes |
+| **Unicode tree** | A tree with `├──` and `└──` connectors in a `.tree.txt` file. | Yes |
+| **Markdown** | A nested bullet list in a `.md` file. | Yes |
+| **Markdown tree** | A fenced Unicode tree in a `.tree.md` file, preserving the earlier Markdown export style. | Yes |
 | **JSON** | The complete versioned document, including stable folder IDs. Best for backup or integration. | Yes |
 | **SVG** | A scalable image of the directory structure. | No |
 | **PNG** | A raster image for sharing. | No |
 
-**TXT, Markdown, SVG, and PNG describe the structure; they do not create folders.** Only the ZIP contains real folder entries. Downloading any format does not modify existing folders on your device.
+**Text, tree, Markdown, SVG, and PNG exports describe the structure; they do not create folders.** Only the ZIP contains real folder entries. Downloading any format does not modify existing folders on your device.
 
 ## Run locally
 
@@ -70,7 +75,7 @@ npm run test:pages
 npm run preview -- --base=/folderseed/
 ```
 
-Open `http://127.0.0.1:4173/folderseed/`. The production smoke tests check the bundled script, stylesheet, local font, favicon, editing, saved drafts, and all six download formats. They supplement the full development-server browser suite, which also tests the development-only embedding example.
+Open `http://127.0.0.1:4173/folderseed/`. The production smoke tests check the bundled script, stylesheet, local font, favicon, editing, saved drafts, and the available download formats. They supplement the full development-server browser suite, which also tests the development-only embedding example.
 
 ### Browser tests
 
@@ -105,11 +110,57 @@ My project
   Archive
 ```
 
-The editor accepts two-space indentation, four-space indentation, or one tab per level. Automatic mode infers the style from the first child. You can also select a style explicitly. Blank lines are ignored. Mixed spaces and tabs, skipped levels, duplicate sibling names, and additional roots are rejected with an error rather than guessed.
+### Supported text formats
 
-**Text changes are staged.** A valid draft updates the preview immediately; use **Apply changes** to commit it to the folder model and history, or **Discard draft** to return to the last committed structure. Invalid drafts show an error and leave the preview on the last committed structure. Export, import, templates, visual editing, and undo/redo wait until the draft is applied or discarded.
+Choose **Auto-detect**, **Plain text**, **Markdown list**, **ASCII tree**, or **Unicode tree**. Use an explicit format when a folder name resembles list or tree syntax and automatic detection is not what you intend.
 
-FolderSeed's exported text, fenced Markdown, and Unicode tree notation can be parsed again. A trailing `/` may mark a folder, but names containing path separators are not accepted. Text import creates new IDs; JSON preserves IDs and is the preferred lossless project format.
+Changing the format converts valid text to that representation; choosing Auto-detect preserves the current raw text. If the text is invalid, changing the format only changes how it is interpreted, so you can correct a mistaken format selection without losing the draft.
+
+- **Plain text:** one root followed by indented children. Use two spaces, four spaces, or one tab per level. Automatic indentation detection uses the first child; an explicit indentation setting is also available.
+- **Markdown list:** one-root nested unordered lists using `-`, `*`, or `+` markers, with consistent two-space, four-space, or tab indentation. Ordered lists are not supported. Exported labels use whole-name code spans so punctuation remains part of the folder name, not Markdown styling.
+- **ASCII tree:** connector-based trees using `|--`, `` `-- ``, or `+--` branches. Only the connectors are ASCII; Unicode folder names remain UTF-8 text.
+- **Unicode tree:** branches such as `├──` and `└──` with matching indentation.
+- **Fenced text:** existing fenced plain, ASCII, and Unicode blocks are accepted in Auto-detect or Markdown mode, including Markdown tree downloads. Explicit Plain text mode treats bullets, connectors, and fences as literal text rather than stripping them.
+
+Blank lines are ignored. Mixed spaces and tabs, skipped levels, duplicate sibling names, and additional roots are rejected rather than guessed. A trailing `/` may mark a folder, but names containing path separators are not accepted.
+
+For example, these Markdown and ASCII inputs describe the same structure:
+
+```markdown
+- My project
+  - Documents
+    - Notes
+  - Media
+```
+
+```text
+My project
+|-- Documents
+|   `-- Notes
+`-- Media
+```
+
+### File import versus pasted text
+
+File imports use their extension to avoid guessing away parts of a folder name:
+
+- `.txt` imports as **literal plain text**.
+- `.ascii.txt` or `.ascii` imports as an **ASCII tree**.
+- `.tree.txt` or `.tree` imports as a **Unicode tree**.
+- `.md`, `.markdown`, or `.tree.md` imports as **Markdown**, including supported fenced blocks.
+- `.json` imports the versioned project; other extensions use automatic text detection.
+
+If a tree from another tool is saved as an ordinary `.txt` file, paste it into the Text editor and choose its format, or rename it to the appropriate `.ascii.txt` or `.tree.txt` suffix. FolderSeed's own downloads already use the matching suffixes.
+
+### Automatic updates, without losing your text
+
+There is no Apply button. Valid text updates the preview immediately and is committed to the folder model after **350 ms without further typing**. Typing bursts become undo steps, rather than one step per keystroke. Your raw formatting and cursor position are not rewritten during automatic updates. Input-method composition is allowed to finish before committing.
+
+An invalid draft shows an error with a source line when available and keeps the **last valid structure** in the preview. The invalid text stays in the editor; it is never silently replaced. Fix the error or choose **Revert text** to explicitly return to a valid structure. Export, switching to visual editing, importing, and opening a template are blocked while text is invalid.
+
+Exporting, copying, or switching editor tabs commits valid pending text first, so these actions do not use an older version of the tree. **Copy tree** always copies the Unicode tree shown by the text-tree preview. Browser autosave retains the raw text, editor mode, selected format and indentation, and last valid document—including when the text is temporarily invalid or empty. Reloading restores that editing state; undo history remains session-only.
+
+All exported text and Markdown variants can be parsed again using their matching format. Auto-detect is a convenience, not a guarantee for syntax-like names: for example, choose Plain text to preserve a root literally named `- Notes`. Text parsing creates new IDs; JSON preserves IDs and is the preferred lossless project format.
 
 ## Reuse in your application
 
@@ -163,7 +214,7 @@ console.log(formatTree(updated));
 const backup = serializeJSON(updated);
 ```
 
-Import text with `parseIndented(text, 'auto')` or JSON with `parseJSON(text)`. Validate untrusted object input with `validateDocument(input)` before using it. Validation failures are `DirectoryError` instances with a stable `code` and, where applicable, a `line`.
+Import text with `parseText(text, 'auto', 'auto')` or JSON with `parseJSON(text)`. Use `formatText(document, format, indent)` to produce a chosen text representation; `parseIndented` and `formatIndented` remain available for existing integrations. Validate untrusted object input with `validateDocument(input)` before using it. Validation failures are `DirectoryError` instances with a stable `code` and, where applicable, a `line`.
 
 ### React editor
 
@@ -185,7 +236,7 @@ export function ProjectFolders() {
 }
 ```
 
-`initialDocument` initializes the editor; it is not a continuously controlled value. `onChange` receives the initialized document and committed changes, not uncommitted text drafts. Set `storageKey={false}` when the host owns persistence, or pass a unique string to isolate drafts between projects. The standalone app uses `folderseed:draft:v1`.
+`initialDocument` initializes the editor; it is not a continuously controlled value. `onChange` receives the initialized document and valid committed changes, including automatically committed text edits. It does not receive invalid text or raw drafts. Set `storageKey={false}` when the host owns persistence, or pass a unique string to isolate drafts between projects. The standalone app uses `folderseed:draft:v1`.
 
 See [the embedding example](examples/embedding.tsx) and [architecture notes](docs/architecture.md) for the data model, integration boundaries, and export helper. With `npm run dev` running, open `/examples/index.html` on the local dev server for a working host-owned editor example. This example is a development route, not a separate deployed service.
 
@@ -197,7 +248,7 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 - Folder names are treated as text, not HTML or commands. No scripts are generated or run.
 - Unsafe names, path traversal, control characters, operating-system reserved names, and duplicate sibling names are rejected.
 - ZIP entries are folder-only, use validated paths, and preserve empty folders.
-- Local drafts use browser storage. An unreadable saved draft is preserved under a timestamped recovery key before the active draft is replaced; if that backup cannot be saved, autosave pauses rather than overwriting the original. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
+- Local drafts use browser storage and include raw editor text, even when invalid or empty, together with its mode, format, indentation, and the last valid document. An unreadable saved draft is preserved under a timestamped recovery key before the active draft is replaced; if that backup cannot be saved, autosave pauses rather than overwriting the original. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
 - After the app has loaded, editing and exports do not need a network connection. This is not an installable offline/PWA app; a first load or later reload may still require access to its host.
 
 ## Current limits
@@ -208,7 +259,7 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 - PNG export is limited to **8,192 pixels per edge** and **32 million pixels**. Large structures should use SVG instead.
 - Folder-only: no real files, file contents, symbolic links, filesystem import, or ZIP import.
 - No collaboration, cloud sync, account system, or backend.
-- Undo/redo retains up to 50 committed changes in the current session; history is not saved across reloads.
+- Undo/redo retains up to 50 committed changes in the current session. Text edits are grouped by the automatic-update pause; history is not saved across reloads.
 - Local browser storage is a convenience, not a durable backup or multi-tab synchronization system.
 - Browser font availability affects image appearance, especially emoji and less common scripts. Image exports do not bundle fonts.
 - Name validation improves portability, but total extracted path length, case rules, archive tools, and filesystem restrictions vary by platform. Keep deeply nested names short and inspect the destination when extracting.

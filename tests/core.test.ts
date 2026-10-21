@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   addFolder, createDocument, DirectoryError, flatten, formatIndented, formatTree,
   LIMITS, moveFolder, parseIndented, parseJSON, removeFolder, renameFolder,
-  serializeJSON, validateDocument, validateName,
+  serializeJSON, validateDocument, validateName, detectTextFormat, formatASCII,
+  formatMarkdown, formatText, parseText, type TextFormat,
 } from '../src/core';
 
 const paths = (doc: ReturnType<typeof createDocument>) => flatten(doc).map(item => item.path);
@@ -223,6 +224,262 @@ describe('versioned JSON', () => {
       for (const indent of [2, 4, 'tabs'] as const) expect(formatIndented(parseIndented(formatIndented(doc, indent)))).toBe(formatIndented(doc));
       expect(formatTree(parseIndented(formatTree(doc)))).toBe(formatTree(doc));
       expect(parseJSON(serializeJSON(doc))).toEqual(doc);
+    }
+  });
+});
+
+describe('explicit text formats and conservative syntax detection', () => {
+  const formats = ['plain', 'markdown', 'ascii', 'unicode'] as const;
+  const fixture = () => parseIndented('Project\n  Assets\n    Originals\n    Selected\n      Favorites\n  Output');
+
+  it.each(formats)('round-trips explicit %s text', format => {
+    const doc = fixture();
+    const text = formatText(doc, format);
+    expect(paths(parseText(text, format))).toEqual(paths(doc));
+    expect(paths(parseText(text))).toEqual(paths(doc));
+    expect(detectTextFormat(text)).toBe(format);
+  });
+
+  it('keeps the legacy entry points and canonical output unchanged', () => {
+    const doc = fixture();
+    expect(formatText(doc)).toBe(formatIndented(doc));
+    expect(formatText(doc, 'unicode')).toBe(formatTree(doc));
+    expect(formatText(doc, 'ascii')).toBe(formatASCII(doc));
+    expect(formatText(doc, 'markdown')).toBe(formatMarkdown(doc));
+    expect(parseText('Root').root.name).toBe('Root');
+  });
+
+  it.each(['- Notes', '+ Ideas', '`-- Drafts', '├── Literal', '```', '```text', '# Heading', '1. Topic'])('explicit plain preserves literal name %j', name => {
+    const input = `${name}\n  - Child\n    ├── Literal branch\n  + Another`;
+    const doc = parseText(input, 'plain');
+    expect(doc.root.name).toBe(name);
+    expect(formatText(doc, 'plain')).toBe(input);
+  });
+
+  it('never strips fences, list markers or inline-code syntax in explicit plain mode', () => {
+    expect(parseText('`Root`\n  `Child`', 'plain').root.name).toBe('`Root`');
+    expectCode(() => parseText('```text\nRoot\n```', 'plain'), 'MULTIPLE_ROOTS', 2);
+    expectCode(() => parseText('* Root\n  * Child', 'plain'), 'UNSAFE_NAME', 1);
+    expectCode(() => parseText('Root\n|-- Child', 'plain'), 'MULTIPLE_ROOTS', 2);
+  });
+
+  it('treats auto detection as a hint and rejects malformed detected syntax', () => {
+    expect(detectTextFormat('')).toBe('plain');
+    expect(detectTextFormat('  \n\t')).toBe('plain');
+    expect(detectTextFormat('- Notes')).toBe('markdown');
+    expect(parseText('- Notes', 'plain').root.name).toBe('- Notes');
+    expect(parseText('- Notes').root.name).toBe('Notes');
+    expect(detectTextFormat('Root\n    `-- Skipped')).toBe('ascii');
+    expectCode(() => parseText('Root\n    `-- Skipped'), 'INDENT_JUMP', 2);
+    expectCode(() => parseText('Root\n  └── Malformed'), 'TREE_FORMAT', 2);
+    expectCode(() => parseText('Root\n|--Child'), 'TREE_FORMAT', 2);
+  });
+
+  it('validates format and indentation arguments instead of silently guessing', () => {
+    expectCode(() => parseText('Root', 'yaml' as TextFormat), 'INVALID_FORMAT');
+    expectCode(() => formatText(fixture(), 'auto' as 'plain'), 'INVALID_FORMAT');
+    expectCode(() => parseText('Root', 'plain', 3 as 2), 'INVALID_INDENT');
+    expectCode(() => formatText(fixture(), 'unicode', 3 as 2), 'INVALID_INDENT');
+  });
+});
+
+describe('Markdown nested lists', () => {
+  it.each([2, 4, 'tabs'] as const)('preserves %s indentation and mixed unordered bullet styles', indent => {
+    const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
+    const input = `- Root\n${unit}* Assets\n${unit}${unit}+ Originals\n${unit}- Output`;
+    const doc = parseText(input, 'markdown', indent);
+    expect(paths(doc)).toEqual(['Root', 'Root/Assets', 'Root/Assets/Originals', 'Root/Output']);
+    expect(paths(parseText(input))).toEqual(paths(doc));
+    expect(paths(parseText(formatMarkdown(doc, indent), 'markdown', indent))).toEqual(paths(doc));
+  });
+
+  it('exports one root and dynamically quoted, literal folder names', () => {
+    const doc = parseText('Root\n  [draft](final)\n  a `b`\n  ```\n  + Ideas\n  1. Topic\n  # Heading', 'plain');
+    const text = formatMarkdown(doc);
+    expect(text).toBe('- `Root`\n  - `[draft](final)`\n  - `` a `b` ``\n  - ```` ``` ````\n  - `+ Ideas`\n  - `1. Topic`\n  - `# Heading`');
+    expect(paths(parseText(text, 'markdown'))).toEqual(paths(doc));
+  });
+
+  it.each(['`', '``', '```text', '`leading', 'trailing`', '`both`', 'a `` b', 'a `b` c', '[links](literal)', '- item', '+ item', '1. item', 'A & B', 'name_with_underscores', 'a!b'])('round-trips punctuation name %j through a Markdown code span', name => {
+    const doc = createDocument(name);
+    expect(parseText(formatMarkdown(doc), 'markdown').root.name).toBe(name);
+    expect(parseText(formatMarkdown(doc)).root.name).toBe(name);
+  });
+
+  it('accepts raw literal punctuation and standard Markdown punctuation escapes', () => {
+    const doc = parseText('- Root\n  - \\`literal\n  - \\[brackets\\]\n  - [name](literal)\n  - 1. topic\n  - a \\+ b', 'markdown');
+    expect(doc.root.children.map(node => node.name)).toEqual(['`literal', '[brackets]', '[name](literal)', '1. topic', 'a + b']);
+    expectCode(() => parseText('- Root\n  - folder\\name', 'markdown'), 'UNSAFE_NAME', 2);
+  });
+
+  it('accepts folder markers and code-span padding without interpreting Markdown markup', () => {
+    expect(paths(parseText('- Root/\n  - Child/', 'markdown'))).toEqual(['Root', 'Root/Child']);
+    expect(parseText('- ` Root `', 'markdown').root.name).toBe('Root');
+    expect(parseText('- `A &amp; B`', 'markdown').root.name).toBe('A &amp; B');
+  });
+
+  it.each(['-', '+', '*', '- ', '- `', '- `unfinished', '- ``unfinished`', '- `one` and `two`'])('rejects incomplete or ambiguous Markdown item %j', text => {
+    expect(() => parseText(text, 'markdown')).toThrow(DirectoryError);
+  });
+
+  it('rejects multiple roots, ordered lists, continuations and mixed styles explicitly', () => {
+    expectCode(() => parseText('- Root\n- Another', 'markdown'), 'MULTIPLE_ROOTS', 2);
+    expectCode(() => parseText('1. Root\n  1. Child', 'markdown'), 'MARKDOWN_SYNTAX', 1);
+    expectCode(() => parseText('- Root\n  Child without bullet', 'markdown'), 'MARKDOWN_SYNTAX', 2);
+    expectCode(() => parseText('- Root\n  - Child\n    continuation', 'markdown'), 'MARKDOWN_SYNTAX', 3);
+    expectCode(() => parseText('- Root\n  - Child\n      - Skipped', 'markdown'), 'INDENT_JUMP', 3);
+    expectCode(() => parseText('- Root\n    - Child\n  - Other', 'markdown'), 'INVALID_INDENT', 3);
+    expectCode(() => parseText('- Root\n\t- Child\n  - Other', 'markdown'), 'MIXED_INDENT', 3);
+    expectCode(() => parseText('- Root\n \t- Child', 'markdown'), 'MIXED_INDENT', 2);
+  });
+
+  it('rejects unsafe names and normalized duplicates after decoding', () => {
+    expectCode(() => parseText('- Root\n  - `../escape`', 'markdown'), 'UNSAFE_NAME', 2);
+    expectCode(() => parseText('- Root\n  - \\.\\.\\/escape', 'markdown'), 'UNSAFE_NAME', 2);
+    expectCode(() => parseText('- Root\n  - `NUL`', 'markdown'), 'RESERVED_NAME', 2);
+    expectCode(() => parseText('- Root\n  - `[literal]`\n  - \\[literal\\]', 'markdown'), 'DUPLICATE_NAME', 3);
+    expectCode(() => parseText('- Root\n  - `café`\n  - cafe\u0301', 'markdown'), 'DUPLICATE_NAME', 3);
+    expectCode(() => parseText('- Root\n  - `   `', 'markdown'), 'INVALID_NAME', 2);
+  });
+});
+
+describe('ASCII and Unicode tree grammars', () => {
+  it('exports conventional ASCII tree branches and accepts +-- variants', () => {
+    const doc = parseText('Root\n  Assets\n    Originals\n    Selected\n      Favorites\n  Output', 'plain');
+    const text = 'Root\n|-- Assets\n|   |-- Originals\n|   `-- Selected\n|       `-- Favorites\n`-- Output';
+    expect(formatASCII(doc)).toBe(text);
+    expect(paths(parseText(text, 'ascii'))).toEqual(paths(doc));
+    expect(paths(parseText(text.replaceAll('|-- ', '+-- ').replaceAll('`-- ', '+-- '), 'ascii'))).toEqual(paths(doc));
+  });
+
+  it.each(['ascii', 'unicode'] as const)('preserves literal punctuation in %s names', format => {
+    const doc = parseText('- Root\n  +-- Literal\n    └── Name\n  ```\n  [data]', 'plain');
+    const text = formatText(doc, format);
+    expect(paths(parseText(text, format))).toEqual(paths(doc));
+    expect(paths(parseText(text))).toEqual(paths(doc));
+  });
+
+  it.each(['Root\n|--', 'Root\n|-- ', 'Root\n|--Child', 'Root\n|-- Child\n|  `-- Bad', 'Root\n|-- Child\n\t`-- Bad', 'Root\n+--- Child'])('rejects partial or malformed ASCII tree %j', text => {
+    expect(() => parseText(text, 'ascii')).toThrow(DirectoryError);
+  });
+
+  it('rejects skipped tree levels and mixed alphabets instead of flattening them', () => {
+    expectCode(() => parseText('Root\n    `-- Child', 'ascii'), 'INDENT_JUMP', 2);
+    expectCode(() => parseText('Root\n|-- Child\n|       `-- Skipped', 'ascii'), 'INDENT_JUMP', 3);
+    expectCode(() => parseText('Root\n├── Child\n│       └── Skipped', 'unicode'), 'INDENT_JUMP', 3);
+    expectCode(() => parseText('Root\n|-- Child\n└── Other', 'ascii'), 'TREE_FORMAT', 3);
+    expectCode(() => parseText('Root\n├── Child\n`-- Other', 'unicode'), 'TREE_FORMAT', 3);
+    expectCode(() => parseText('Root\n  Child', 'unicode'), 'TREE_FORMAT', 2);
+    expectCode(() => parseText('Root\n  Child', 'ascii'), 'TREE_FORMAT', 2);
+  });
+
+  it.each(['ascii', 'unicode'] as const)('rejects unsafe and duplicate names in %s trees', format => {
+    const branch = format === 'ascii' ? '|-- ' : '├── ';
+    expectCode(() => parseText(`Root\n${branch}../escape`, format), 'UNSAFE_NAME', 2);
+    expectCode(() => parseText(`Root\n${branch}NUL.txt`, format), 'RESERVED_NAME', 2);
+    expectCode(() => parseText(`Root\n${branch}Images\n${branch}images`, format), 'DUPLICATE_NAME', 3);
+  });
+});
+
+describe('Markdown fenced blocks and source locations', () => {
+  it.each(['plain', 'ascii', 'unicode'] as const)('imports existing fenced %s exports through Markdown and Auto modes', format => {
+    const doc = parseText('Root\n  Assets\n    Images\n  Output', 'plain');
+    const input = `# Directory structure\n\n\`\`\`text\n${formatText(doc, format)}\n\`\`\`\nFooter`;
+    expect(detectTextFormat(input)).toBe('markdown');
+    expect(paths(parseText(input, 'markdown'))).toEqual(paths(doc));
+    expect(paths(parseText(input))).toEqual(paths(doc));
+  });
+
+  it('treats punctuation in generic text fences as data, not Markdown list syntax', () => {
+    expect(parseText('```text\n- Literal root\n```', 'markdown').root.name).toBe('- Literal root');
+    expect(parseText('````text\n```\n````', 'markdown').root.name).toBe('```');
+    expect(parseText('~~~text\nRoot\n  Child\n~~~', 'markdown').root.children[0].name).toBe('Child');
+    expect(parseText('```plain\nRoot\n  └── Literal\n```', 'markdown').root.children[0].name).toBe('└── Literal');
+    expect(parseText('```markdown\n- `Root`\n  - `Child`\n```', 'markdown').root.children[0].name).toBe('Child');
+  });
+
+  it('preserves source line numbers through BOM, CRLF, blanks and fences', () => {
+    expectCode(() => parseText('\uFEFF# Heading\r\n\r\n```text\r\nRoot\r\n\r\n  ../escape\r\n```', 'markdown'), 'UNSAFE_NAME', 6);
+    expectCode(() => parseText('\uFEFF- Root\r\n\r\n  - Child\r\n  - CHILD', 'markdown'), 'DUPLICATE_NAME', 4);
+  });
+
+  it('rejects incomplete, repeated, unsupported and explicit-mode-mismatched fences', () => {
+    expectCode(() => parseText('```text\nRoot', 'markdown'), 'MARKDOWN_FENCE', 1);
+    expectCode(() => parseText('```text\nRoot\n~~~', 'markdown'), 'MARKDOWN_FENCE', 1);
+    expectCode(() => parseText('```text\nRoot\n```\n```text\nOther\n```', 'markdown'), 'MARKDOWN_FENCE', 3);
+    expectCode(() => parseText('```javascript\nRoot\n```', 'markdown'), 'MARKDOWN_FENCE', 1);
+    expectCode(() => parseText('```ascii\nRoot\n└── Child\n```', 'markdown'), 'TREE_FORMAT', 3);
+    expectCode(() => parseText('```text\nRoot\n```', 'unicode'), 'TREE_FORMAT', 2);
+    expectCode(() => parseText('```text\nRoot\n```', 'ascii'), 'TREE_FORMAT', 2);
+  });
+});
+
+describe('format safety bounds and generated round-trips', () => {
+  const formats = ['plain', 'markdown', 'ascii', 'unicode'] as const;
+  it.each(formats)('enforces size, node and depth bounds in %s mode', format => {
+    expectCode(() => parseText('x'.repeat(LIMITS.textBytes + 1), format), 'TEXT_TOO_LARGE');
+    const name = (depth: number, index: number) => `${format === 'markdown' ? '- ' : ''}level-${index}`;
+    const overNodes = Array.from({ length: LIMITS.nodes + 1 }, (_, index) => {
+      if (format === 'ascii') return index ? `|-- folder-${index}` : 'Root';
+      if (format === 'unicode') return index ? `├── folder-${index}` : 'Root';
+      return `${index ? '  ' : ''}${name(index ? 1 : 0, index)}`;
+    }).join('\n');
+    expectCode(() => parseText(overNodes, format), 'TOO_MANY_FOLDERS', LIMITS.nodes + 1);
+    const overDepth = Array.from({ length: LIMITS.depth + 2 }, (_, depth) => {
+      if (format === 'ascii') return depth ? `${'    '.repeat(depth - 1)}\`-- level-${depth}` : 'Root';
+      if (format === 'unicode') return depth ? `${'    '.repeat(depth - 1)}└── level-${depth}` : 'Root';
+      return `${'  '.repeat(depth)}${name(depth, depth)}`;
+    }).join('\n');
+    expectCode(() => parseText(overDepth, format), 'TOO_DEEP', LIMITS.depth + 2);
+    expectCode(() => parseText(' \n\t', format), 'EMPTY_TEXT');
+  });
+
+  it('bounds detection input and validates documents before every export', () => {
+    expectCode(() => detectTextFormat('x'.repeat(LIMITS.textBytes + 1)), 'TEXT_TOO_LARGE');
+    const unsafe = createDocument('Root');
+    unsafe.root.name = '../escape';
+    for (const format of formats) expectCode(() => formatText(unsafe, format), 'UNSAFE_NAME');
+  });
+
+  it('round-trips maximum allowed folder/depth limits through all explicit formats', () => {
+    const doc = createDocument('`'.repeat(100));
+    let parent = doc.root;
+    for (let depth = 1; depth < LIMITS.depth; depth++) {
+      const child = { id: `level-${depth}`, name: `Level ${depth}`, children: [] as typeof doc.root.children };
+      parent.children.push(child);
+      parent = child;
+    }
+    for (let index = 0; index < LIMITS.nodes - LIMITS.depth; index++) {
+      parent.children.push({ id: `leaf-${index}`, name: `${'\u754c'.repeat(80)}-${index}`, children: [] });
+    }
+    for (const format of formats) {
+      const text = formatText(doc, format, 4);
+      expect(new TextEncoder().encode(text).byteLength).toBeLessThan(LIMITS.textBytes);
+      expect(formatText(parseText(text, format, 4), format, 4)).toBe(text);
+    }
+  });
+
+  it('round-trips deterministic generated punctuation-rich trees in every explicit format', () => {
+    let state = 47312;
+    const random = () => ((state = (state * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const names = ['- literal', '+ literal', '`-- literal', '├── literal', '```', '[links](literal)', 'a `b` c', '# heading', '1. topic', 'Résumé', '📁'];
+    for (let sample = 0; sample < 30; sample++) {
+      const doc = createDocument(names[sample % names.length]);
+      const nodes = [{ node: doc.root, depth: 0 }];
+      for (let index = 0; index < 25; index++) {
+        let parent = nodes[Math.floor(random() * nodes.length)];
+        if (parent.depth >= 6) parent = nodes[0];
+        const node = { id: `id-${index}`, name: `${names[index % names.length]}-${index}`, children: [] as typeof doc.root.children };
+        parent.node.children.push(node);
+        nodes.push({ node, depth: parent.depth + 1 });
+      }
+      for (const format of formats) {
+        for (const indent of [2, 4, 'tabs'] as const) {
+          const text = formatText(doc, format, indent);
+          expect(formatText(parseText(text, format, indent), format, indent)).toBe(text);
+        }
+      }
+      expect(paths(parseText(formatMarkdown(doc)))).toEqual(paths(doc));
     }
   });
 });

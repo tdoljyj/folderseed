@@ -1,18 +1,23 @@
 import { zipSync, type Zippable } from 'fflate';
 import {
   flatten,
-  formatIndented,
+  formatText,
   formatTree,
   serializeJSON,
   validateDocument,
   type DirectoryDocument,
 } from '../core';
 
-export type ExportFormat = 'zip' | 'txt' | 'md' | 'json' | 'svg' | 'png';
+export type ExportFormat = 'zip' | 'txt' | 'md' | 'md-tree' | 'ascii' | 'unicode' | 'json' | 'svg' | 'png';
 export interface ExportResult {
   blob: Blob;
   filename: string;
 }
+
+const FILE_EXTENSIONS: Record<ExportFormat, string> = {
+  zip: '.zip', txt: '.txt', md: '.md', 'md-tree': '.tree.md',
+  ascii: '.ascii.txt', unicode: '.tree.txt', json: '.json', svg: '.svg', png: '.png',
+};
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
 const PNG_MAX_EDGE = 8192;
@@ -107,7 +112,8 @@ async function rasterizePNG(svg: string, width: number, height: number): Promise
 }
 
 function downloadFilename(name: string, format: ExportFormat): string {
-  const extension = `.${format}`;
+  const extension = FILE_EXTENSIONS[format];
+  if (!extension) throw new Error('Unsupported export format.');
   const encoder = new TextEncoder();
   const budget = 255 - encoder.encode(extension).byteLength;
   let basename = '';
@@ -135,8 +141,13 @@ export async function createExport(input: DirectoryDocument, format: ExportForma
       return { filename, blob: new Blob([new Uint8Array(bytes)], { type: 'application/zip' }) };
     }
     case 'txt':
-      return { filename, blob: new Blob([formatIndented(document) + '\n'], { type: 'text/plain;charset=utf-8' }) };
-    case 'md': {
+      return { filename, blob: new Blob([formatText(document, 'plain') + '\n'], { type: 'text/plain;charset=utf-8' }) };
+    case 'md':
+      return { filename, blob: new Blob([formatText(document, 'markdown') + '\n'], { type: 'text/markdown;charset=utf-8' }) };
+    case 'ascii':
+    case 'unicode':
+      return { filename, blob: new Blob([formatText(document, format) + '\n'], { type: 'text/plain;charset=utf-8' }) };
+    case 'md-tree': {
       const tree = formatTree(document);
       const longestRun = Math.max(0, ...(tree.match(/`+/g) ?? []).map((run) => run.length));
       const fence = '`'.repeat(Math.max(3, longestRun + 1));

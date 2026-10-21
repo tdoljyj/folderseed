@@ -31,17 +31,21 @@ test('edits, reloads, and downloads every format from the production app', async
   await page.goto('./');
   await page.getByRole('tab', { name: 'Text editor', exact: true }).click();
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Pages test\n  Assets\n    Images\n  Notes');
-  await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
+  await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document?.root?.name)).toBe('Pages test');
   await page.getByRole('tab', { name: 'Visual editor', exact: true }).click();
   await page.reload();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Pages test', 'Assets', 'Images', 'Notes']);
-  for (const [name, extension] of [['Folder ZIP', 'zip'], ['Plain text', 'txt'], ['Markdown', 'md'], ['Project JSON', 'json'], ['Vector SVG', 'svg'], ['Image PNG', 'png']]) {
+  for (const [name, extension] of [['Folder ZIP', 'zip'], ['Plain text', 'txt'], ['Plain text', 'ascii'], ['Plain text', 'unicode'], ['Markdown', 'md'], ['Markdown', 'md-tree'], ['Project JSON', 'json'], ['Vector SVG', 'svg'], ['Image PNG', 'png']]) {
     await page.getByRole('radio', { name: new RegExp('^' + name) }).click();
+    if (['txt', 'ascii', 'unicode'].includes(extension)) await page.getByLabel('Text export style', { exact: true }).selectOption(extension);
+    if (['md', 'md-tree'].includes(extension)) await page.getByLabel('Markdown export style', { exact: true }).selectOption(extension);
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download ' + extension.toUpperCase(), exact: true }).click();
     const download = await pending;
     expect(await download.failure()).toBeNull();
-    expect(download.suggestedFilename()).toBe('Pages test.' + extension);
+    const suffix = ({ ascii: 'ascii.txt', unicode: 'tree.txt', 'md-tree': 'tree.md' } as Record<string, string>)[extension] ?? extension;
+    expect(download.suggestedFilename()).toBe('Pages test.' + suffix);
     const bytes = await readFile((await download.path())!);
     expect(bytes.length).toBeGreaterThan(0);
     if (extension === 'zip') expect(Object.keys(unzipSync(bytes))).toEqual(['Pages test/', 'Pages test/Assets/', 'Pages test/Assets/Images/', 'Pages test/Notes/']);

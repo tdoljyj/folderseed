@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent } from 'react';
-import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseIndented, parseJSON, removeFolder, renameFolder, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent } from '../core';
+import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
 import { historyReducer } from './history';
@@ -22,8 +22,27 @@ const formats: { id: ExportFormat; title: string; description: string; icon: str
 ];
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 
-function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false) {
-  if (initialDocument) return { document: validateDocument(initialDocument), draft: '', warning: '', recoveryRaw: null as string | null, indent: 'auto' as ParseIndent };
+const AUTO_APPLY_MS = 350;
+const textFormats: { value: TextFormat; label: string }[] = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'plain', label: 'Plain text' },
+  { value: 'markdown', label: 'Markdown list' },
+  { value: 'ascii', label: 'ASCII tree' },
+  { value: 'unicode', label: 'Unicode tree' },
+];
+interface InitialState {
+  document: DirectoryDocument;
+  draft: string | null;
+  pending: boolean;
+  mode: 'visual' | 'text';
+  textFormat: TextFormat;
+  indent: ParseIndent;
+  warning: string;
+  recoveryRaw: string | null;
+}
+function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false): InitialState {
+  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'auto' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null };
+  if (initialDocument) return { ...defaults, document: validateDocument(initialDocument) };
   if (storageKey && typeof window !== 'undefined') {
     let raw: string | null = null;
     try {
@@ -32,11 +51,33 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
         if (raw.length > LIMITS.textBytes * 2) throw new Error('Draft too large');
         const stored = JSON.parse(raw);
         const document = validateDocument(stored.document);
-        return { document, draft: typeof stored.draft === 'string' && stored.draft.length <= LIMITS.textBytes ? stored.draft : '', warning: '', recoveryRaw: null as string | null, indent: ([2, 4, 'tabs', 'auto'].includes(stored.indent) ? stored.indent : 'auto') as ParseIndent };
+        const hasDraft = typeof stored.draft === 'string';
+        // Older drafts used an empty string for "no draft" and did not persist a pending flag.
+        const draft = hasDraft && (typeof stored.pending === 'boolean' || stored.draft !== '') ? stored.draft as string : null;
+        const restoredFormat: TextFormat = textFormats.some(item => item.value === stored.textFormat) ? stored.textFormat : 'auto';
+        const restoredIndent: ParseIndent = [2, 4, 'tabs', 'auto'].includes(stored.indent) ? stored.indent : 'auto';
+        let pending = draft !== null && stored.pending !== false;
+        if (draft !== null && !pending) {
+          try { pending = !sameStructure(document, parseText(draft, restoredFormat, restoredIndent)); } catch { pending = true; }
+        }
+        return {
+          ...defaults, document, draft,
+          pending,
+          mode: stored.mode === 'text' || pending ? 'text' : 'visual',
+          textFormat: restoredFormat,
+          indent: restoredIndent,
+        };
       }
-    } catch { return { document: makeTemplate(0), draft: '', warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw, indent: 'auto' as ParseIndent }; }
+    } catch {
+      return { ...defaults, document: makeTemplate(0), warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw };
+    }
   }
-  return { document: makeTemplate(0), draft: '', warning: '', recoveryRaw: null as string | null, indent: 'auto' as ParseIndent };
+  return { ...defaults, document: makeTemplate(0) };
+}
+
+/** Ignore regenerated text-import IDs when deciding whether a typing burst changed the tree. */
+function sameStructure(first: DirectoryDocument, second: DirectoryDocument): boolean {
+  return formatIndented(first) === formatIndented(second);
 }
 
 export function FolderEditor({ initialDocument, onChange, storageKey = 'folderseed:draft:v1' }: FolderEditorProps) {
@@ -45,10 +86,12 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const doc = history.present;
   const [selectedId, setSelectedId] = useState(doc.root.id);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<'visual' | 'text'>(initial.draft ? 'text' : 'visual');
+  const [mode, setMode] = useState<'visual' | 'text'>(initial.mode);
+  const [textFormat, setTextFormat] = useState<TextFormat>(initial.textFormat);
   const [indent, setIndent] = useState<ParseIndent>(initial.indent);
-  const [textDraft, setTextDraft] = useState(initial.draft || formatIndented(doc, initial.indent === 'auto' ? 2 : initial.indent));
-  const [textDirty, setTextDirty] = useState(!!initial.draft);
+  const [textDraft, setTextDraft] = useState(initial.draft ?? formatIndented(doc, initial.indent === 'auto' ? 2 : initial.indent));
+  const [textDirty, setTextDirty] = useState(initial.pending);
+  const [composing, setComposing] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('zip');
   const [previewMode, setPreviewMode] = useState<'folders' | 'text'>('folders');
   const [modal, setModal] = useState<Modal | null>(null);
@@ -61,6 +104,8 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const [exporting, setExporting] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragId = useRef<string | null>(null);
+  const composingRef = useRef(false);
+  const draftPersisted = useRef(false);
   const onChangeRef = useRef(onChange);
   const importTicket = useRef(0);
   const contentRevision = useRef(0);
@@ -73,13 +118,27 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const parent = rows.find(row => row.node.id === selected.parentId)?.node;
   const siblingIndex = parent?.children.findIndex(node => node.id === selected.node.id) ?? -1;
   const parsed = useMemo(() => {
-    if (!textDirty) return { document: doc, error: '' };
-    try { return { document: parseIndented(textDraft, indent), error: '' }; }
+    if (!textDirty || composing) return { document: doc, error: '' };
+    try { return { document: parseText(textDraft, textFormat, indent), error: '' }; }
     catch (error) { return { document: doc, error: errorMessage(error) }; }
-  }, [doc, textDirty, textDraft, indent]);
-  const previewDoc = mode === 'text' ? parsed.document : doc;
+  }, [doc, textDirty, textDraft, indent, textFormat, composing]);
+  const invalidDraft = textDirty && !!parsed.error;
+  const blockedDraft = invalidDraft || composing;
+  const previewDoc = mode === 'text' && !composing ? parsed.document : doc;
   const previewRows = useMemo(() => flatten(previewDoc), [previewDoc]);
   const depth = Math.max(...previewRows.map(row => row.depth)) + 1;
+  const activeExportCard = format === 'ascii' || format === 'unicode' ? 'txt' : format === 'md-tree' ? 'md' : format;
+  const statusLabel = saveState.startsWith('Draft not') || saveState.startsWith('Autosave paused') ? saveState : composing ? 'Composing text…' : textDirty && !parsed.error ? 'Saving changes…' : invalidDraft ? `Draft invalid · ${saveState === 'Saving draft…' ? 'saving draft…' : storageKey ? 'saved on this device' : 'kept in this session'}` : saveState;
+
+  useEffect(() => {
+    if (!textDirty || parsed.error || composing) return;
+    const revision = contentRevision.current;
+    const timer = window.setTimeout(() => {
+      if (revision !== contentRevision.current || composingRef.current) return;
+      applyPendingText();
+    }, AUTO_APPLY_MS);
+    return () => window.clearTimeout(timer);
+  }, [textDirty, textDraft, textFormat, indent, parsed, composing]);
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onChangeRef.current?.(doc); }, [doc]);
@@ -87,7 +146,8 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     if (!rows.some(row => row.node.id === selectedId)) setSelectedId(doc.root.id);
   }, [doc, rows, selectedId]);
   useEffect(() => {
-    if (!storageKey) return;
+    draftPersisted.current = false;
+    if (!storageKey) { setSaveState('Kept in this session'); return; }
     try {
       // Preserve unreadable data before replacing the active key. If backup fails, keep the original untouched.
       if (!recoveryBackedUp.current && initial.recoveryRaw !== null) {
@@ -96,10 +156,11 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
           recoveryBackedUp.current = true;
         } catch { setSaveState('Autosave paused — unreadable draft preserved'); return; }
       }
-      localStorage.setItem(storageKey, JSON.stringify({ document: doc, draft: textDirty ? textDraft : '', indent }));
+      localStorage.setItem(storageKey, JSON.stringify({ document: doc, draft: textDraft, pending: textDirty, mode, textFormat, indent }));
+      draftPersisted.current = true;
       setSaveState('Saved on this device');
-    } catch { setSaveState('Draft not saved — export JSON as a backup'); }
-  }, [doc, textDirty, textDraft, storageKey, indent, initial.recoveryRaw]);
+    } catch { setSaveState('Draft not saved — copy your text before leaving'); }
+  }, [doc, textDirty, textDraft, storageKey, indent, textFormat, mode, initial.recoveryRaw]);
   useEffect(() => {
     if (!modal) return;
     dialog.current?.showModal();
@@ -107,34 +168,82 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   }, [modal]);
   useEffect(() => {
     if (!textDirty) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    const warn = (event: BeforeUnloadEvent) => { if (!draftPersisted.current) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [textDirty]);
 
   function notify(message: string, error = false) { setNotice(message); setNoticeError(error); }
+  function editorText(next: DirectoryDocument, chosenFormat = textFormat, chosenIndent = indent) {
+    let outputFormat = chosenFormat;
+    if (outputFormat === 'auto') {
+      try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
+    }
+    return formatText(next, outputFormat, chosenIndent === 'auto' ? 2 : chosenIndent);
+  }
   function commit(next: DirectoryDocument, message: string) {
     contentRevision.current++;
     dispatch({ type: 'commit', document: next });
-    setTextDraft(formatIndented(next, indent === 'auto' ? 2 : indent)); setTextDirty(false); notify(message);
+    setTextDraft(editorText(next)); setTextDirty(false); notify(message);
+  }
+  function applyPendingText(): DirectoryDocument | null {
+    if (composingRef.current || parsed.error) return null;
+    if (!textDirty) return doc;
+    contentRevision.current++;
+    const next = sameStructure(doc, parsed.document) ? doc : parsed.document;
+    if (next !== doc) dispatch({ type: 'commit', document: next });
+    // Do not serialize here: preserve the user's spelling, spacing, selection, and caret.
+    setTextDirty(false);
+    setCollapsed(new Set());
+    return next;
+  }
+  function flushText(): DirectoryDocument | null {
+    const next = applyPendingText();
+    if (!next) notify(composingRef.current ? 'Finish composing text before continuing.' : 'Fix the text error or revert to the last valid structure before continuing.', true);
+    return next;
+  }
+  function changeText(value: string) {
+    contentRevision.current++;
+    draftPersisted.current = false;
+    setSaveState(storageKey ? 'Saving draft…' : 'Kept in this session');
+    setTextDraft(value); setTextDirty(true);
+  }
+  function revertText() {
+    contentRevision.current++;
+    setTextDraft(editorText(doc)); setTextDirty(false); notify('Restored the last valid structure.');
+  }
+  function changeTextFormat(nextFormat: TextFormat) {
+    contentRevision.current++;
+    if (invalidDraft) { setTextFormat(nextFormat); return; }
+    const next = flushText();
+    if (!next) return;
+    setTextFormat(nextFormat);
+    if (nextFormat !== 'auto') setTextDraft(editorText(next, nextFormat));
+  }
+  function changeIndent(nextIndent: ParseIndent) {
+    contentRevision.current++;
+    if (invalidDraft) { setIndent(nextIndent); return; }
+    const next = flushText();
+    if (!next) return;
+    setIndent(nextIndent);
+    if (nextIndent !== 'auto') setTextDraft(editorText(next, textFormat, nextIndent));
   }
   function historyStep(type: 'undo' | 'redo') {
-    if (textDirty) return notify('Apply or discard your text draft before using history.', true);
-    const next = historyReducer(history, { type });
+    const nextDocument = flushText();
+    if (!nextDocument) return;
+    const current = nextDocument === doc ? history : historyReducer(history, { type: 'commit', document: nextDocument });
+    const next = historyReducer(current, { type });
     contentRevision.current++;
-    dispatch({ type }); setTextDraft(formatIndented(next.present, indent === 'auto' ? 2 : indent)); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
+    dispatch({ type }); setTextDraft(editorText(next.present)); setTextDirty(false); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
   }
   function openModal(next: Modal) {
+    if (!flushText()) return;
     setModalError(''); setModal(next);
     if (next.kind === 'add') setName('');
     if (next.kind === 'rename') setName(rows.find(row => row.node.id === next.id)!.node.name);
     if (next.kind === 'move') setDestination(rows.find(row => row.node.id === next.id)?.parentId ?? doc.root.id);
   }
   function closeModal() { dialog.current?.close(); setModal(null); }
-  function applyText() {
-    if (parsed.error) return notify('Fix the highlighted text error before applying changes.', true);
-    commit(parsed.document, 'Text changes applied. Your folders are ready.'); setCollapsed(new Set());
-  }
   function submitModal(event: FormEvent) {
     event.preventDefault(); if (!modal) return;
     try {
@@ -166,23 +275,30 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     catch (error) { notify(errorMessage(error), true); }
   }
   async function importFile(file: File) {
+    if (!flushText()) return;
     const ticket = ++importTicket.current;
     const revision = contentRevision.current;
     try {
-      if (textDirty) throw new Error('Apply or discard your text draft before importing.');
       if (file.size > LIMITS.textBytes) throw new Error('Please choose a text or JSON file smaller than 1 MB.');
       const text = await file.text();
       if (ticket !== importTicket.current) return;
       if (revision !== contentRevision.current) return notify('Import cancelled because your structure changed while the file was being read.', true);
-      const next = file.name.toLowerCase().endsWith('.json') ? parseJSON(text) : parseIndented(text);
-      commit(next, `Imported ${file.name}.`); setCollapsed(new Set()); setMode('visual');
+      const lowerName = file.name.toLowerCase();
+      const importedFormat: TextFormat = /\.ascii(?:\.txt)?$/.test(lowerName) ? 'ascii' : /\.tree(?:\.txt)?$/.test(lowerName) ? 'unicode' : /\.md$|\.markdown$/.test(lowerName) ? 'markdown' : lowerName.endsWith('.txt') ? 'plain' : 'auto';
+      const isJSON = lowerName.endsWith('.json');
+      const next = isJSON ? parseJSON(text) : parseText(text, importedFormat);
+      commit(next, `Imported ${file.name}.`);
+      if (!isJSON) { setTextDraft(text); setTextFormat(importedFormat); setIndent('auto'); }
+      setCollapsed(new Set()); setMode('visual');
     } catch (error) { if (ticket === importTicket.current) notify(errorMessage(error), true); }
   }
   async function download() {
-    if (textDirty || exporting) return;
+    if (exporting) return;
+    const latest = flushText();
+    if (!latest) return;
     setExporting(true);
     try {
-      const result = await createExport(doc, format);
+      const result = await createExport(latest, format);
       const url = URL.createObjectURL(result.blob);
       const link = document.createElement('a'); link.href = url; link.download = result.filename; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
@@ -191,7 +307,9 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     finally { setExporting(false); }
   }
   async function copyPreview() {
-    try { await navigator.clipboard.writeText(formatTree(previewDoc)); notify('Folder tree copied.'); }
+    const latest = flushText();
+    if (!latest) return;
+    try { await navigator.clipboard.writeText(formatTree(latest)); notify('Folder tree copied.'); }
     catch { notify('Clipboard access is unavailable. Download Plain text instead.', true); }
   }
   function renderFolder(node: FolderNode, level: number) {
@@ -217,29 +335,61 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     <aside className="fs-sidebar">
       <a className="fs-brand" href="#workspace" aria-label="FolderSeed workspace"><span className="fs-brand-mark"><Icon name="seed" size={26}/></span><span><span className="fs-brand-name">FolderSeed</span><span className="fs-brand-subtitle">A little structure goes a long way.</span></span></a>
       <div className="fs-sidebar-section"><span className="fs-eyebrow">YOUR WORKSPACE</span><a className="fs-nav-active" href="#workspace"><Icon name="tree"/>Folder builder<span className="fs-nav-dot"/></a></div>
-      <div className="fs-sidebar-section fs-templates"><span className="fs-eyebrow">A PLACE TO START</span><p>Skip the blank canvas.</p>{templates.map((template, index) => <button key={template.id} type="button" className="fs-template" disabled={textDirty} onClick={() => openModal({ kind: 'template', index })}><span className={`fs-template-icon color-${index}`}><Icon name={template.icon}/></span><span><strong>{template.name}</strong><small>{template.description}</small></span><Icon name="chevron" size={13}/></button>)}</div>
+      <div className="fs-sidebar-section fs-templates"><span className="fs-eyebrow">A PLACE TO START</span><p>Skip the blank canvas.</p>{templates.map((template, index) => <button key={template.id} type="button" className="fs-template" disabled={blockedDraft} onClick={() => openModal({ kind: 'template', index })}><span className={`fs-template-icon color-${index}`}><Icon name={template.icon}/></span><span><strong>{template.name}</strong><small>{template.description}</small></span><Icon name="chevron" size={13}/></button>)}</div>
       <div className="fs-privacy-card"><span className="fs-privacy-icon"><Icon name="shield" size={22}/></span><strong>Your folders. Your device.</strong><p>Your folder drafts and exports stay in your browser. No accounts or app analytics.</p><span className="fs-local-badge"><span/>LOCAL-FIRST BY DESIGN</span></div>
       <div className="fs-sidebar-footer">Made for fresh starts.<span>FolderSeed · v0.1</span></div>
     </aside>
     <main className="fs-main" id="workspace">
-      <header className="fs-topbar"><span className="fs-breadcrumb">Workspace <Icon name="chevron" size={12}/> Folder builder</span><span className="fs-save-state"><span className={saveState.startsWith('Draft not') ? 'warning' : ''}/>{saveState}</span></header>
-      <section className="fs-heading"><div><span className="fs-eyebrow">FROM A SMALL SEED, A CLEARER SPACE</span><h1>A little structure.<br className="fs-mobile-break"/> A fresh start.</h1><p>Shape your folders, make them yours, and take them anywhere.</p></div><button type="button" className="fs-button fs-import" disabled={textDirty} onClick={() => fileInput.current?.click()}><Icon name="upload"/>Import structure</button><input type="file" accept=".json,.txt,.md,.markdown,text/plain,application/json" ref={fileInput} hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file); }}/></section>
-      <div className="fs-mobile-templates"><span><Icon name="spark" size={15}/>Need a starting point?</span><select aria-label="Choose a template" value="" disabled={textDirty} onChange={event => { if (event.target.value !== '') openModal({ kind: 'template', index: Number(event.target.value) }); }}><option value="" disabled>Choose a template</option>{templates.map((template, index) => <option key={template.id} value={index}>{template.name}</option>)}</select></div>
+      <header className="fs-topbar"><span className="fs-breadcrumb">Workspace <Icon name="chevron" size={12}/> Folder builder</span><span className="fs-save-state"><span className={blockedDraft || saveState.startsWith('Draft not') ? 'warning' : ''}/>{statusLabel}</span></header>
+      <section className="fs-heading"><div><span className="fs-eyebrow">FROM A SMALL SEED, A CLEARER SPACE</span><h1>A little structure.<br className="fs-mobile-break"/> A fresh start.</h1><p>Shape your folders, make them yours, and take them anywhere.</p></div><button type="button" className="fs-button fs-import" disabled={blockedDraft} onClick={() => fileInput.current?.click()}><Icon name="upload"/>Import structure</button><input type="file" accept=".json,.txt,.md,.markdown,.ascii,.tree,text/plain,application/json" ref={fileInput} hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file); }}/></section>
+      <div className="fs-mobile-templates"><span><Icon name="spark" size={15}/>Need a starting point?</span><select aria-label="Choose a template" value="" disabled={blockedDraft} onChange={event => { if (event.target.value !== '') openModal({ kind: 'template', index: Number(event.target.value) }); }}><option value="" disabled>Choose a template</option>{templates.map((template, index) => <option key={template.id} value={index}>{template.name}</option>)}</select></div>
       <div className="fs-workspace-grid">
         <section className="fs-panel fs-editor" aria-label="Folder editor">
-          <div className="fs-panel-heading"><div><span className="fs-step">01</span><h2>Make it yours</h2></div><div className="fs-history"><button type="button" aria-label="Undo" title="Undo" disabled={!history.past.length || textDirty} onClick={() => historyStep('undo')}><Icon name="undo" size={17}/></button><button type="button" aria-label="Redo" title="Redo" disabled={!history.future.length || textDirty} onClick={() => historyStep('redo')}><Icon name="redo" size={17}/></button></div></div>
-          <div className="fs-editor-tabs" role="tablist" aria-label="Editing mode"><button type="button" role="tab" aria-selected={mode === 'visual'} aria-controls="visual-editor" id="visual-tab" onClick={() => { if (textDirty) notify('Apply or discard your text draft before switching to visual editing.', true); else setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button><button type="button" role="tab" aria-selected={mode === 'text'} aria-controls="text-editor" id="text-tab" onClick={() => { setMode('text'); if (!textDirty) setTextDraft(formatIndented(doc, indent === 'auto' ? 2 : indent)); }}><Icon name="code" size={16}/>Text editor</button></div>
+          <div className="fs-panel-heading"><div><span className="fs-step">01</span><h2>Make it yours</h2></div><div className="fs-history"><button type="button" aria-label="Undo" title="Undo" disabled={(!history.past.length && !textDirty) || blockedDraft} onClick={() => historyStep('undo')}><Icon name="undo" size={17}/></button><button type="button" aria-label="Redo" title="Redo" disabled={!history.future.length || textDirty || blockedDraft} onClick={() => historyStep('redo')}><Icon name="redo" size={17}/></button></div></div>
+          <div className="fs-editor-tabs" role="tablist" aria-label="Editing mode"><button type="button" role="tab" aria-selected={mode === 'visual'} aria-controls="visual-editor" id="visual-tab" onClick={() => { if (flushText()) setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button><button type="button" role="tab" aria-selected={mode === 'text'} aria-controls="text-editor" id="text-tab" onClick={() => setMode('text')}><Icon name="code" size={16}/>Text editor</button></div>
           {mode === 'visual' ? <div id="visual-editor" role="tabpanel" aria-labelledby="visual-tab" className="fs-visual-area">
             <div className="fs-tree-help"><span>{rows.length} folders, a world of possibilities</span><span>Drag to nest</span></div>
             <ul className="fs-tree" aria-label="Folder list">{renderFolder(doc.root, 0)}</ul>
             {rows.length === 1 && <div className="fs-empty-hint"><Icon name="spark" size={23}/><p>Every good structure starts somewhere.<br/>Add your first folder below.</p></div>}
             <button type="button" className="fs-add-folder" onClick={() => openModal({ kind: 'add', id: selected.node.id })}><Icon name="plus" size={17}/>Add folder<span>inside {selected.node.name}</span></button>
             <div className="fs-selection-tools"><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><div className="fs-tool-buttons"><button type="button" onClick={() => openModal({ kind: 'rename', id: selected.node.id })}><Icon name="edit" size={15}/>Rename</button><button type="button" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={15}/>Move</button><button type="button" aria-label="Move up" title="Move up" disabled={!parent || siblingIndex <= 0} onClick={() => reorder(-1)}><Icon name="up" size={15}/></button><button type="button" aria-label="Move down" title="Move down" disabled={!parent || siblingIndex >= parent.children.length - 1} onClick={() => reorder(1)}><Icon name="down" size={15}/></button><button type="button" className="fs-danger-icon" aria-label="Delete folder" title="Delete folder" disabled={!parent} onClick={() => openModal({ kind: 'delete', id: selected.node.id })}><Icon name="trash" size={15}/></button></div></div>
-          </div> : <div id="text-editor" role="tabpanel" aria-labelledby="text-tab" className="fs-text-area"><div className="fs-text-options"><label htmlFor="indent">Indentation</label><select id="indent" value={indent} onChange={event => { const nextIndent: ParseIndent = event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent; setIndent(nextIndent); if (!textDirty) setTextDraft(formatIndented(doc, nextIndent === 'auto' ? 2 : nextIndent)); }}><option value="auto">Auto-detect</option><option value="2">2 spaces</option><option value="4">4 spaces</option><option value="tabs">Tabs</option></select></div><textarea aria-label="Folder structure text" spellCheck={false} value={textDraft} onChange={event => { contentRevision.current++; setTextDraft(event.target.value); setTextDirty(true); }} onKeyDown={event => { if (event.key === 'Tab') { event.preventDefault(); const input = event.currentTarget; const position = input.selectionStart; const insertion = indent === 'tabs' ? '\t' : indent === 4 ? '    ' : '  '; const next = textDraft.slice(0, position) + insertion + textDraft.slice(input.selectionEnd); contentRevision.current++; setTextDraft(next); setTextDirty(true); requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; }); } }}/><p className="fs-text-guide">One folder per line. Indent children with 2 spaces, 4 spaces, or tabs. A single root keeps everything together.</p>{parsed.error ? <div className="fs-inline-error" role="alert">{parsed.error}</div> : textDirty && <div className="fs-text-valid"><Icon name="check" size={14}/>Valid structure · preview updated</div>}<div className="fs-text-actions"><button type="button" className="fs-button" disabled={!textDirty} onClick={() => { contentRevision.current++; setTextDraft(formatIndented(doc, indent === 'auto' ? 2 : indent)); setTextDirty(false); notify('Text draft discarded.'); }}>Discard draft</button><button type="button" className="fs-button fs-primary" disabled={!textDirty || !!parsed.error} onClick={applyText}>Apply changes</button></div></div>}
+          </div> : <div id="text-editor" role="tabpanel" aria-labelledby="text-tab" className="fs-text-area">
+            <div className="fs-text-options fs-format-controls">
+              <label htmlFor="text-format">Text format
+                <select id="text-format" value={textFormat} disabled={composing} onChange={event => changeTextFormat(event.target.value as TextFormat)}>{textFormats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              </label>
+              <label htmlFor="indent">Indentation
+                <select id="indent" value={indent} disabled={composing || textFormat === 'ascii' || textFormat === 'unicode'} onChange={event => changeIndent(event.target.value === '2' ? 2 : event.target.value === '4' ? 4 : event.target.value as ParseIndent)}>
+                  <option value="auto">Auto-detect</option><option value="2">2 spaces</option><option value="4">4 spaces</option><option value="tabs">Tabs</option>
+                </select>
+              </label>
+            </div>
+            <textarea aria-label="Folder structure text" spellCheck={false} value={textDraft}
+              onChange={event => changeText(event.target.value)}
+              onCompositionStart={() => { composingRef.current = true; setComposing(true); contentRevision.current++; }}
+              onCompositionEnd={event => { composingRef.current = false; setComposing(false); changeText(event.currentTarget.value); }}
+              onKeyDown={event => {
+                if (event.key === 'Tab' && !event.nativeEvent.isComposing && !composingRef.current) {
+                  event.preventDefault();
+                  const input = event.currentTarget;
+                  const position = input.selectionStart;
+                  const insertion = indent === 'tabs' ? '\t' : indent === 4 || textFormat === 'ascii' || textFormat === 'unicode' ? '    ' : '  ';
+                  changeText(textDraft.slice(0, position) + insertion + textDraft.slice(input.selectionEnd));
+                  requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; });
+                }
+              }}/>
+            <p className="fs-text-guide">Changes apply automatically after a short pause. Plain text, Markdown lists, ASCII trees, and Unicode trees are supported. Choose Plain text to keep leading punctuation literal.</p>
+            {parsed.error ? <div className="fs-inline-error" role="alert">{parsed.error}<span className="fs-error-detail">Your draft is kept. The preview still shows the last valid structure.</span></div> : <div className="fs-text-valid"><Icon name={composing || textDirty ? 'edit' : 'check'} size={14}/>{composing ? 'Composing… your last valid structure is unchanged' : textDirty ? 'Saving changes…' : 'Automatically applied · no extra click needed'}</div>}
+            {textDirty && <div className="fs-text-actions"><button type="button" className="fs-button" disabled={composing} onClick={revertText}>Revert text</button></div>}
+          </div>}
+
         </section>
-        <section className="fs-panel fs-preview" aria-label="Live preview"><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>See it take shape</h2></div><span className={`fs-live-badge ${parsed.error && mode === 'text' ? 'is-paused' : ''}`}><span/>{parsed.error && mode === 'text' ? 'LAST SAVED' : 'LIVE PREVIEW'}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>Folders</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>Text tree</button></div><button type="button" className="fs-copy" onClick={() => void copyPreview()}><Icon name="copy" size={15}/>Copy tree</button></div><div className="fs-preview-canvas">{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc)}</pre> : <div className="fs-preview-tree">{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ marginLeft: depth * 24 }}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">YOUR ROOT FOLDER</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span><strong>{previewRows.length}</strong> folders</span><span><strong>{depth}</strong> {depth === 1 ? 'level' : 'levels'}</span><span><Icon name="check" size={14}/>No files, just possibilities</span></div></section>
+        <section className="fs-panel fs-preview" aria-label="Live preview"><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>See it take shape</h2></div><span className={`fs-live-badge ${blockedDraft && mode === 'text' ? 'is-paused' : ''}`}><span/>{blockedDraft && mode === 'text' ? 'LAST VALID' : 'LIVE PREVIEW'}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>Folders</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>Text tree</button></div><button type="button" className="fs-copy" disabled={blockedDraft} onClick={() => void copyPreview()}><Icon name="copy" size={15}/>Copy tree</button></div><div className="fs-preview-canvas">{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc)}</pre> : <div className="fs-preview-tree">{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ marginLeft: depth * 24 }}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">YOUR ROOT FOLDER</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span><strong>{previewRows.length}</strong> folders</span><span><strong>{depth}</strong> {depth === 1 ? 'level' : 'levels'}</span><span><Icon name="check" size={14}/>No files, just possibilities</span></div></section>
       </div>
-      <section className="fs-panel fs-export" aria-label="Export structure"><div className="fs-export-heading"><div><span className="fs-step">03</span><h2>Take it with you</h2></div><p>A real folder structure, or a picture of the plan. Your choice.</p></div><div className="fs-export-options" role="radiogroup" aria-label="Export format">{formats.map(item => <button key={item.id} type="button" role="radio" aria-checked={format === item.id} onClick={() => setFormat(item.id)} className={format === item.id ? 'is-active' : ''}><span className="fs-format-icon"><Icon name={item.icon} size={20}/></span><strong>{item.title}</strong><small>{item.description}</small><span className="fs-radio-dot"/></button>)}</div><div className="fs-export-bottom"><p><Icon name="info" size={17}/>{textDirty ? 'Apply or discard your text draft before exporting.' : format === 'zip' ? <span><strong>Real folders, ready to use.</strong> Extract your ZIP to create this structure. No files or scripts included.</span> : format === 'json' ? <span><strong>A reusable project backup.</strong> Import this JSON into FolderSeed to keep editing later.</span> : <span><strong>A description, not real folders.</strong> Choose Folder ZIP if you want actual folders on your device.</span>}</p><button type="button" className="fs-button fs-primary fs-download" disabled={textDirty || exporting} onClick={() => void download()}><Icon name="download"/>{exporting ? 'Preparing…' : `Download ${format.toUpperCase()}`}</button></div></section>
+      <section className="fs-panel fs-export" aria-label="Export structure"><div className="fs-export-heading"><div><span className="fs-step">03</span><h2>Take it with you</h2></div><p>A real folder structure, or a picture of the plan. Your choice.</p></div><div className="fs-export-options" role="radiogroup" aria-label="Export format">{formats.map(item => <button key={item.id} type="button" role="radio" aria-checked={activeExportCard === item.id} onClick={() => setFormat(item.id)} className={activeExportCard === item.id ? 'is-active' : ''}><span className="fs-format-icon"><Icon name={item.icon} size={20}/></span><strong>{item.title}</strong><small>{item.description}</small><span className="fs-radio-dot"/></button>)}</div>
+        {activeExportCard === 'txt' && <div className="fs-export-subtype"><label htmlFor="text-export-style">Text export style</label><select id="text-export-style" value={format} onChange={event => setFormat(event.target.value as ExportFormat)}><option value="txt">Indented text</option><option value="ascii">ASCII tree</option><option value="unicode">Unicode tree</option></select></div>}
+        {activeExportCard === 'md' && <div className="fs-export-subtype"><label htmlFor="markdown-export-style">Markdown export style</label><select id="markdown-export-style" value={format} onChange={event => setFormat(event.target.value as ExportFormat)}><option value="md">Nested list</option><option value="md-tree">Fenced tree</option></select></div>}
+        <div className="fs-export-bottom"><p><Icon name="info" size={17}/>{blockedDraft ? 'Fix the text error or finish composing before exporting. Your last valid structure is safe.' : format === 'zip' ? <span><strong>Real folders, ready to use.</strong> Extract your ZIP to create this structure. No files or scripts included.</span> : format === 'json' ? <span><strong>A reusable project backup.</strong> Import this JSON into FolderSeed to keep editing later.</span> : <span><strong>A description, not real folders.</strong> Choose Folder ZIP if you want actual folders on your device.</span>}</p><button type="button" className="fs-button fs-primary fs-download" disabled={blockedDraft || exporting} onClick={() => void download()}><Icon name="download"/>{exporting ? 'Preparing…' : `Download ${format.toUpperCase()}`}</button></div></section>
       {notice && <div className={`fs-notice ${noticeError ? 'is-error' : ''}`} role={noticeError ? 'alert' : 'status'}><Icon name={noticeError ? 'info' : 'check'} size={17}/><span>{notice}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice('')}><Icon name="close" size={16}/></button></div>}
       <footer className="fs-footer"><span>Small beginnings. Well-organized possibilities.</span><span><Icon name="shield" size={13}/>Your structure never leaves this browser.</span></footer>
     </main>

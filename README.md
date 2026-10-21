@@ -4,7 +4,7 @@
 
 FolderSeed is a small, local-first folder editor for people who would rather arrange folders than write scripts. Build your structure visually, edit it as text, and choose the export that fits your next step.
 
-No account, backend, API key, or command-line knowledge is needed to use the editor. Your draft stays in your browser; there is no telemetry or upload service.
+No account, backend, API key, or command-line knowledge is needed to use the editor. Your draft stays in your browser; the app includes no analytics or folder-upload service. The website host may log ordinary web requests (see Privacy and safety).
 
 ## What you can do
 
@@ -52,7 +52,25 @@ npm run preview     # Preview the production app locally
 npm test            # Run the core and export unit tests
 ```
 
-The generated `dist/` directory is a static application. This repository does not automatically deploy it.
+The generated `dist/` directory is a static application.
+
+### GitHub Pages deployment
+
+The Pages workflow tests and builds each push to `main`, then publishes only `dist/` using GitHub's official Pages actions. It can also be run manually from the Actions tab on `main`. In repository Settings → Pages, the source must be **GitHub Actions**.
+
+Expected deployment URL (available after the first successful Pages deployment): **https://tdoljyj.github.io/folderseed/**
+
+No custom domain, paid service, user account, or repository secret is required. The build job has read-only repository access; only the deployment job receives the temporary Pages and OpenID Connect permissions needed by GitHub. Pull requests do not deploy.
+
+To test the production build at the same project subpath locally:
+
+```sh
+npm run build:pages
+npm run test:pages
+npm run preview -- --base=/folderseed/
+```
+
+Open `http://127.0.0.1:4173/folderseed/`. The production smoke tests check the bundled script, stylesheet, local font, favicon, editing, saved drafts, and all six download formats. They supplement the full development-server browser suite, which also tests the development-only embedding example.
 
 ### Browser tests
 
@@ -173,7 +191,8 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 
 ## Privacy and safety
 
-- Editing, validation, and export happen in the browser. Folder contents are not uploaded.
+- Editing, validation, and export happen in the browser. Folder names, imported outlines, and drafts are not uploaded by the app.
+- The app includes no analytics. Loading the hosted site sends ordinary requests for HTML, scripts, styles, and the bundled font to GitHub Pages; GitHub may collect request information such as IP addresses under its [Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). Local-first editing does not mean the host receives no web requests.
 - The application does not scan or write your filesystem. It generates downloads in memory.
 - Folder names are treated as text, not HTML or commands. No scripts are generated or run.
 - Unsafe names, path traversal, control characters, operating-system reserved names, and duplicate sibling names are rejected.

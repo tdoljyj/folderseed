@@ -17,7 +17,9 @@
     "test:e2e": "playwright test",
     "check": "npm run test && npm run build:all && npm run test:e2e",
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && node scripts/finalize-types.mjs",
-    "build:all": "npm run build && npm run build:lib"
+    "build:all": "npm run build && npm run build:lib",
+    "build:pages": "npm run build -- --base=/folderseed/",
+    "test:pages": "playwright test --config playwright.pages.config.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3"

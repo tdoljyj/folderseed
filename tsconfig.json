@@ -26,6 +26,7 @@
     "examples",
     "vite.config.ts",
     "playwright.config.ts",
-    "vite.lib.config.ts"
+    "vite.lib.config.ts",
+    "playwright.pages.config.ts"
   ]
 }

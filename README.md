@@ -112,7 +112,9 @@ My project
 
 ### Supported text formats
 
-The toolbar has a **Visual editor** button and an always-visible **Text format** dropdown. Choose **Plain text**, **Markdown list**, **ASCII tree**, or **Unicode tree** to open that text editor directly. There is no separate text-mode button or automatic-format option. In visual mode the dropdown shows **Choose text format**, so you can select the same format again to return to your text.
+The toolbar has a **Visual editor** button and a split text-format button. Its label starts as **Plain text**: click the label to enter that text editor immediately, without opening a menu. The separate trailing arrow opens **Plain text**, **Markdown list**, **ASCII tree**, and **Unicode tree**. Choosing a menu item also enters its editor. The current format stays on the label when you return to visual editing; there is no placeholder, generic Text editor button, or automatic-format option.
+
+The format menu supports arrow keys, Home/End, and typing the first letter of a format. Enter or Space chooses an item; Escape closes the menu and returns focus to its arrow button. Tab, clicking outside, or pressing the arrow button again dismisses it without changing formats.
 
 Choosing a different format converts valid text to that representation; reopening the same format preserves its raw text. If the text is invalid, changing the format only changes how it is interpreted, so you can correct a mistaken format selection without losing the draft.
 
@@ -150,7 +152,7 @@ File imports use their extension to avoid guessing away parts of a folder name:
 - `.md`, `.markdown`, or `.tree.md` imports as **Markdown**, including supported fenced blocks.
 - `.json` imports the versioned project; other extensions use automatic text detection.
 
-If a tree from another tool is saved as an ordinary `.txt` file, choose its format in the dropdown and paste it into the text editor, or rename it to the appropriate `.ascii.txt` or `.tree.txt` suffix. FolderSeed's own downloads already use the matching suffixes. Plain-text downloads whose shortened basename would end in `.ascii` or `.tree` use `.plain.txt` to avoid being mistaken for a tree format.
+If a tree from another tool is saved as an ordinary `.txt` file, choose its format from the arrow menu and paste it into the text editor, or rename it to the appropriate `.ascii.txt` or `.tree.txt` suffix. FolderSeed's own downloads already use the matching suffixes. Plain-text downloads whose shortened basename would end in `.ascii` or `.tree` use `.plain.txt` to avoid being mistaken for a tree format.
 
 ### Automatic updates, without losing your text
 

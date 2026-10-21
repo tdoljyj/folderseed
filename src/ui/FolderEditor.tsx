@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type 
 import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
+import { FormatSwitch } from './FormatSwitch';
 import { historyReducer } from './history';
 import { restoreTextFormat, type ExplicitTextFormat } from './draftFormat';
 import { makeTemplate, templates } from './templates';
@@ -25,12 +26,6 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 const AUTO_APPLY_MS = 350;
 const OUTPUT_INDENT = 4;
-const textFormats: { value: ExplicitTextFormat; label: string }[] = [
-  { value: 'plain', label: 'Plain text' },
-  { value: 'markdown', label: 'Markdown list' },
-  { value: 'ascii', label: 'ASCII tree' },
-  { value: 'unicode', label: 'Unicode tree' },
-];
 interface InitialState {
   document: DirectoryDocument;
   draft: string | null;
@@ -352,7 +347,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
           <div className="fs-panel-heading"><div><span className="fs-step">01</span><h2>Make it yours</h2></div><div className="fs-history"><button type="button" aria-label="Undo" title="Undo" disabled={(!history.past.length && !textDirty) || blockedDraft} onClick={() => historyStep('undo')}><Icon name="undo" size={17}/></button><button type="button" aria-label="Redo" title="Redo" disabled={!history.future.length || textDirty || blockedDraft} onClick={() => historyStep('redo')}><Icon name="redo" size={17}/></button></div></div>
           <div className="fs-editor-toolbar">
             <div className="fs-editor-tabs"><button type="button" aria-pressed={mode === 'visual'} aria-controls="visual-editor" onClick={() => { if (flushText()) setMode('visual'); }}><Icon name="tree" size={16}/>Visual editor</button></div>
-            <select className="fs-inline-format" aria-label="Text format" value={mode === 'visual' || textFormat === 'auto' ? '' : textFormat} disabled={composing} onChange={event => changeTextFormat(event.target.value as ExplicitTextFormat)}><option value="" disabled>Choose text format</option>{textFormats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+            <FormatSwitch value={textFormat === 'auto' ? 'plain' : textFormat} active={mode === 'text'} disabled={composing} onActivate={() => setMode('text')} onSelect={changeTextFormat}/>
           </div>
           {mode === 'visual' ? <div id="visual-editor" role="region" aria-label="Visual editor" className="fs-visual-area">
             <div className="fs-tree-help"><span>{rows.length} folders, a world of possibilities</span><span>Drag to nest</span></div>

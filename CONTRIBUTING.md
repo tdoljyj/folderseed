@@ -52,7 +52,7 @@ Text-editor changes must preserve these guarantees:
 - Generated editor text, the Tab key, and TXT/Markdown-list downloads use four spaces; pasted/imported two-space and tab outlines remain supported without a visible indentation setting.
 - Undo/redo groups typing bursts and does not leave stale timers that overwrite newer changes.
 
-Test rapid edits, immediate export, direct format selection and reopening the same format from visual mode, invalid drafts, composition events, reloads, and undo/redo around pending updates. Browser tests should check actual download contents as well as the visible preview.
+Test rapid edits, immediate export, independent format-label/menu-arrow clicks, menu keyboard navigation and dismissal, and reopening the same format from visual mode, invalid drafts, composition events, reloads, and undo/redo around pending updates. Browser tests should check actual download contents as well as the visible preview.
 
 Keep all public documentation, comments, UI copy, issue templates, and commit messages in English. Unicode folder names and internationalization test fixtures are welcome.
 

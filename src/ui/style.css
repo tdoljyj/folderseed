@@ -2004,7 +2004,17 @@
 /* Text editing applies valid changes automatically without altering the typed source. */
 .fs-editor-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px 20px 0; }
 .fs-editor-toolbar .fs-editor-tabs { margin: 0; flex-shrink: 0; }
-.fs-inline-format { min-width: 132px; max-width: 100%; min-height: 35px; border: 1px solid #dcdce3; border-radius: 7px; padding: 5px 8px; color: #37373d; background: #fff; font-size: 11px; }
+.fs-format-switch { display: flex; position: relative; width: 156px; max-width: 100%; min-height: 35px; border: 1px solid #dcdce3; border-radius: 7px; color: #626268; background: #f7f7f9; }
+.fs-format-switch.is-active { color: #1d1d1f; background: #fff; box-shadow: 0 1px 3px #1d1d1f12; }
+.fs-format-switch > button { display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 11px; }
+.fs-format-activate { flex: 1; min-width: 0; gap: 6px; padding: 6px 8px; border-radius: 6px 0 0 6px; white-space: nowrap; }
+.fs-format-switch.is-active .fs-format-activate { font-weight: 600; }
+.fs-format-switch > .fs-format-menu-trigger { flex: 0 0 29px; padding: 0; border-left: 1px solid #dcdce3; border-radius: 0 6px 6px 0; }
+.fs-format-switch > button:hover:not(:disabled) { background: #eceef3; }
+.fs-format-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 100%; padding: 4px; background: #fff; border: 1px solid #dcdce3; border-radius: 8px; box-shadow: 0 8px 24px #172c4d24; }
+.fs-format-menu button { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 5px; border: 0; border-radius: 5px; padding: 9px 7px; background: transparent; color: #37373d; text-align: left; font-size: 12px; white-space: nowrap; }
+.fs-format-menu button:hover,.fs-format-menu button:focus { outline: none; background: #eaf2fc; color: #0055b3; }
+.fs-format-menu button[aria-checked=true] { font-weight: 600; }
 @media (max-width: 1200px) { .fs-editor-toolbar { padding-inline: 13px; } }
 .fs-export-subtype { display: flex; align-items: center; gap: 12px; padding: 16px 0 0; color: #626268; font-size: 11px; }
 .fs-export-subtype select { border: 1px solid #dcdce3; border-radius: 7px; padding: 7px 10px; color: #37373d; background: #fff; font-size: 11px; }
@@ -2012,7 +2022,8 @@
 .fs-save-state { max-width: 50%; text-align: right; }
 @media (max-width: 600px) {
   .fs-editor-toolbar { padding-inline: 16px; gap: 9px; }
-  .fs-inline-format { min-height: 37px; font-size: 12px; }
+  .fs-format-switch { min-height: 37px; }
+  .fs-format-switch > button { font-size: 12px; }
   .fs-export-subtype { align-items: flex-start; flex-direction: column; gap: 7px; }
   .fs-export-subtype select { width: 100%; min-height: 38px; font-size: 12px; }
 }

@@ -29,8 +29,8 @@ test('serves every production asset below the Pages project path', async ({ page
 
 test('edits, reloads, and downloads every format from the production app', async ({ page }) => {
   await page.goto('./');
-  await page.getByLabel('Text format', { exact: true }).selectOption('plain');
-  await expect(page.locator('.fs-editor-toolbar').getByLabel('Text format', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Plain text', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Change text format', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Pages test\n  Assets\n    Images\n  Notes');
   await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');

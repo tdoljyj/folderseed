@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from 'react';
 import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
@@ -111,6 +111,7 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
   const contentRevision = useRef(0);
   const recoveryBackedUp = useRef(initial.recoveryRaw === null);
   const appRef = useRef<HTMLDivElement>(null);
+  const historyFocusId = useRef<string | null>(null);
   const treeRef = useRef<HTMLUListElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -157,6 +158,12 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     return () => window.clearTimeout(timer);
   }, [textDirty, textDraft, textFormat, indent, parsed, composing]);
 
+  useLayoutEffect(() => {
+    if (historyFocusId.current && mode === 'visual') {
+      focusFolderNow(historyFocusId.current);
+      historyFocusId.current = null;
+    }
+  }, [doc, selectedId, mode, collapsed]);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onChangeRef.current?.(doc); }, [doc]);
   useEffect(() => {
@@ -256,6 +263,18 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     const current = nextDocument === doc ? history : historyReducer(history, { type: 'commit', document: nextDocument });
     const next = historyReducer(current, { type });
     contentRevision.current++;
+    if (mode === 'visual') {
+      const nextRows = flatten(next.present);
+      const nextSelected = nextRows.find(row => row.node.id === selected.node.id) ?? nextRows[0];
+      historyFocusId.current = nextSelected.node.id;
+      setSelectedId(nextSelected.node.id);
+      setCollapsed(previous => {
+        const expanded = new Set(previous);
+        let parentId = nextSelected.parentId;
+        while (parentId) { expanded.delete(parentId); parentId = nextRows.find(row => row.node.id === parentId)?.parentId ?? null; }
+        return expanded;
+      });
+    }
     dispatch({ type }); replaceEditorText(next.present); setTextDirty(false); setIndent('auto'); notify(type === 'undo' ? 'Change undone.' : 'Change restored.');
   }
   function handleHistoryKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -266,12 +285,11 @@ export function FolderEditor({ initialDocument, onChange, storageKey = 'folderse
     if (!action || (action === 'undo' ? !history.past.length && !textDirty : !history.future.length || textDirty)) return;
     event.preventDefault(); event.stopPropagation(); historyStep(action);
   }
-  function focusFolder(id: string) {
-    requestAnimationFrame(() => {
-      const button = [...(appRef.current?.querySelectorAll<HTMLButtonElement>('.fs-folder-select') ?? [])].find(item => item.dataset.folderId === id);
-      button?.focus({ preventScroll: true });
-    });
+  function focusFolderNow(id: string) {
+    const button = [...(appRef.current?.querySelectorAll<HTMLButtonElement>('.fs-folder-select') ?? [])].find(item => item.dataset.folderId === id);
+    button?.focus({ preventScroll: true });
   }
+  function focusFolder(id: string) { requestAnimationFrame(() => focusFolderNow(id)); }
   function openModal(next: Modal) {
     if (!flushText()) return;
     setModalError(''); setModal(next);

@@ -1264,12 +1264,16 @@ test('indents and outdents complete subtrees with predictable ordering, undo, an
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
   await page.keyboard.press('Control+z');
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Moving');
+  await expect(page.locator('.fs-folder-select[title="Moving"]')).toBeFocused();
   await page.keyboard.press('Control+z');
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Parent/Moving');
+  await expect(page.locator('.fs-folder-select[title="Moving"]')).toBeFocused();
   await expect(page.locator('.fs-folder-name')).toHaveText(original);
   await page.keyboard.press('Control+Shift+z');
+  await expect(page.locator('.fs-folder-select[title="Moving"]')).toBeFocused();
   await page.keyboard.press('Control+Shift+z');
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Parent/Moving');
+  await expect(page.locator('.fs-folder-select[title="Moving"]')).toBeFocused();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
   await folderActions(page, 'Moving').getByRole('button', { name: 'Move to parent level', exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document?.root?.children?.map((child: { name: string }) => child.name))).toEqual(['Parent', 'Moving', 'After']);

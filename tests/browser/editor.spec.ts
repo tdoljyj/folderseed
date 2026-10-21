@@ -9,6 +9,12 @@ async function chooseTextFormat(page: Page, format: string) {
   await page.getByRole('menuitemradio', { name: formatLabels[format], exact: true }).click();
 }
 
+async function pauseTestClock(page: Page) {
+  // Fixed times avoid racing the host wall clock while pauseAt advances the page clock.
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-01-02T00:00:00Z'));
+}
+
 async function importText(page: Page, text: string, name = 'structure.txt') {
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: name.endsWith('.json') ? 'application/json' : 'text/plain', buffer: Buffer.from(text) });
 }
@@ -244,8 +250,7 @@ for (const [label, indent] of [['2 spaces', '  '], ['4 spaces', '    '], ['tabs'
     await chooseTextFormat(page, 'plain');
     await chooseTextFormat(page, 'plain');
     await expect(page.getByRole('combobox', { name: 'Indentation', exact: true })).toHaveCount(0);
-    await page.clock.install();
-    await page.clock.pauseAt(new Date());
+    await pauseTestClock(page);
     const input = page.getByRole('textbox', { name: 'Folder structure text' });
     const raw = `Root\n${indent}Child\n${indent}Another\n`;
     await input.fill(raw);
@@ -331,8 +336,7 @@ test('preserves an empty invalid draft and the last valid model across refresh',
 
 test('flushes valid pending text immediately when exporting instead of downloading stale folders', async ({ page }) => {
   await chooseTextFormat(page, 'plain');
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseTestClock(page);
   await page.getByRole('textbox', { name: 'Folder structure text' }).fill('Newest\n  Just added');
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download ZIP', exact: true }).click();
@@ -345,8 +349,7 @@ test('flushes valid pending text immediately when exporting instead of downloadi
 test('flushes valid pending text for copy and visual navigation', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await chooseTextFormat(page, 'plain');
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseTestClock(page);
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   await input.fill('Copied\n  Fresh');
   await page.getByRole('button', { name: 'Copy tree', exact: true }).click();
@@ -360,8 +363,7 @@ test('flushes valid pending text for copy and visual navigation', async ({ page,
 test('groups a rapid text burst into a single undo step and restores it with redo', async ({ page }) => {
   await importText(page, 'Before\n  Original');
   await chooseTextFormat(page, 'plain');
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseTestClock(page);
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   await input.fill('A');
   await input.fill('After\n  New');
@@ -377,8 +379,7 @@ test('groups a rapid text burst into a single undo step and restores it with red
 test('waits until IME composition ends before applying text or allowing downloads', async ({ page }) => {
   await importText(page, 'Before\n  Original');
   await chooseTextFormat(page, 'plain');
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseTestClock(page);
   const input = page.getByRole('textbox', { name: 'Folder structure text' });
   await input.dispatchEvent('compositionstart', { data: '' });
   await input.fill('Composed\n  Final name');
@@ -823,11 +824,14 @@ test('leaves textarea undo native instead of rewriting text through document his
   await expect(input).toHaveValue(raw);
   await input.focus();
   await input.press('Control+End');
-  await input.pressSequentially(' Edited');
-  await expect(input).toHaveValue(raw + ' Edited');
+  await input.evaluate(element => element.addEventListener('beforeinput', event => { element.dataset.lastInputType = (event as InputEvent).inputType; }));
+  // Native undo grouping is browser-dependent: test one real keystroke as one editing unit.
+  await input.press('x');
+  await expect(input).toHaveValue(raw + 'x');
   await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
   await input.press('Control+z');
-  // Document undo would regenerate four-space output; native undo retains the original two spaces.
+  // A document-history action would not produce this native event and would regenerate four spaces.
+  await expect(input).toHaveAttribute('data-last-input-type', 'historyUndo');
   await expect(input).toHaveValue(raw);
   await expect(page.locator('.fs-preview-row')).toHaveCount(2);
 });

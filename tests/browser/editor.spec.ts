@@ -1865,9 +1865,12 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     });
     expect(errorBounds.x).toBeGreaterThanOrEqual(errorBounds.left - 0.5);
     expect(errorBounds.x + errorBounds.width).toBeLessThanOrEqual(errorBounds.right + 0.5);
-    const renameCancel = await expectInlineControlsInsideTree(page);
+    await expectInlineControlsInsideTree(page);
     await page.screenshot({ path: testInfo.outputPath(`inline-invalid-name-${layout}.png`), fullPage: true });
+    // Full-page capture can resize the viewport and shift inner scroll positions; hit-test fresh coordinates.
+    const renameCancel = await expectInlineControlsInsideTree(page);
     await page.mouse.click(renameCancel.x, renameCancel.y);
+    await expect(inlineName(page)).toHaveCount(0);
     await expect(page.locator('.fs-selected-path')).toHaveText('Project/Selected');
     await expect(folderRow(page, 'Previous').locator('.fs-folder-select')).toHaveAttribute('aria-pressed', 'false');
 
@@ -1881,6 +1884,7 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     await expect(page.getByLabel('Folder name', { exact: true })).toHaveValue('Project');
     const rootCancel = await expectInlineControlsInsideTree(page);
     await page.mouse.click(rootCancel.x, rootCancel.y);
+    await expect(inlineName(page)).toHaveCount(0);
 
     const names = Array.from({ length: 24 }, (_, index) => `Folder ${String(index + 1).padStart(2, '0')}`);
     await importText(page, ['Project', ...names.map(name => `  ${name}`)].join('\n'));
@@ -1901,9 +1905,12 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.locator('.fs-inline-placeholder')).toBeVisible();
     await expect(page.getByLabel('Folder name', { exact: true })).toBeFocused();
-    const addCancel = await expectInlineControlsInsideTree(page);
+    await expectInlineControlsInsideTree(page);
     await page.screenshot({ path: testInfo.outputPath(`inline-add-child-${layout}.png`), fullPage: true });
+    const addCancel = await expectInlineControlsInsideTree(page);
     await page.mouse.click(addCancel.x, addCancel.y);
+    await expect(inlineName(page)).toHaveCount(0);
+    await expect(page.locator('.fs-inline-placeholder')).toHaveCount(0);
 
     await selectFolder(page, 'Folder 08');
     await tree.evaluate(element => {

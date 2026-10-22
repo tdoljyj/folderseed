@@ -18,6 +18,7 @@ export function EmbeddedFolderSettings() {
         initialDocument={initialDocument}
         storageKey={false}
         themeStorageKey={false}
+        languageStorageKey={false}
         onChange={(document) => setState(current => ({ document, updates: current.updates + 1 }))}
       />
       <details style={{ padding: 24, fontFamily: 'system-ui' }}>

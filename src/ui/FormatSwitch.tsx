@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ExplicitTextFormat } from './draftFormat';
 import { Icon } from './Icon';
+import { useI18n } from './i18n';
 
 const formats: { value: ExplicitTextFormat; label: string }[] = [
   { value: 'plain', label: 'Plain text' },
@@ -19,6 +20,7 @@ interface FormatSwitchProps {
 
 /** The label opens the editor; only the separate menu button changes its format. */
 export function FormatSwitch({ value, active, disabled, onActivate, onSelect }: FormatSwitchProps) {
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLButtonElement>(null);
@@ -52,18 +54,18 @@ export function FormatSwitch({ value, active, disabled, onActivate, onSelect }: 
     const next = event.key === 'ArrowDown' ? (index + 1) % formats.length
       : event.key === 'ArrowUp' ? (index + formats.length - 1) % formats.length
       : event.key === 'Home' ? 0 : event.key === 'End' ? formats.length - 1
-      : event.key.length === 1 && /^[a-z]$/i.test(event.key) ? formats.findIndex(format => format.label.toLowerCase().startsWith(event.key.toLowerCase())) : -1;
+      : event.key.length === 1 && /^[\p{L}\p{N}]$/u.test(event.key) ? formats.findIndex(format => t(format.label).toLocaleLowerCase(locale).startsWith(event.key.toLocaleLowerCase(locale))) : -1;
     if (next >= 0) { event.preventDefault(); items.current[next]?.focus(); }
   }
 
-  return <div className={`fs-format-switch ${active ? 'is-active' : ''}`} ref={root} role="group" aria-label="Text editing format">
-    <button type="button" className="fs-format-activate" ref={main} aria-pressed={active} aria-controls="text-editor" disabled={disabled} onClick={() => { setOpen(false); onActivate(); }}><Icon name="code" size={15}/>{formats[selected].label}</button>
-    <button type="button" className="fs-format-menu-trigger" ref={trigger} aria-label="Change text format" aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} disabled={disabled}
+  return <div className={`fs-format-switch ${active ? 'is-active' : ''}`} ref={root} role="group" aria-label={t('Text editing format')}>
+    <button type="button" className="fs-format-activate" ref={main} aria-pressed={active} aria-controls="text-editor" disabled={disabled} onClick={() => { setOpen(false); onActivate(); }}><Icon name="code" size={15}/>{t(formats[selected].label)}</button>
+    <button type="button" className="fs-format-menu-trigger" ref={trigger} aria-label={t('Change text format')} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} disabled={disabled}
       onClick={() => { if (open) closeMenu(); else showMenu(); }}
       onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); showMenu(event.key === 'ArrowDown' ? 0 : formats.length - 1); } }}><Icon name="down" size={13}/></button>
-    {open && <div className="fs-format-menu" id={menuId} role="menu" aria-label="Text format">
+    {open && <div className="fs-format-menu" id={menuId} role="menu" aria-label={t('Text format')}>
       {formats.map((format, index) => <button key={format.value} type="button" role="menuitemradio" aria-checked={value === format.value} tabIndex={-1} ref={element => { items.current[index] = element; }}
-        onKeyDown={event => menuKeys(event, index)} onClick={() => { setOpen(false); onSelect(format.value); main.current?.focus(); }}><span>{format.label}</span>{value === format.value && <Icon name="check" size={14}/>}</button>)}
+        onKeyDown={event => menuKeys(event, index)} onClick={() => { setOpen(false); onSelect(format.value); main.current?.focus(); }}><span>{t(format.label)}</span>{value === format.value && <Icon name="check" size={14}/>}</button>)}
     </div>}
   </div>;
 }

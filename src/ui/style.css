@@ -2204,13 +2204,14 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 0 1 260px;
-  width: 260px;
+  flex: 1 1 auto;
+  width: auto;
   min-width: 112px;
-  max-width: 100%;
+  max-width: 260px;
   height: 26px;
 }
 .fs-app .fs-folder-select:has(> .fs-inline-editor) { height: 100%; padding-block: 0; }
+.fs-app .fs-folder-select:has(> .fs-inline-editor) > .fs-folder-icon { flex: 0 0 20px; }
 .fs-app .fs-inline-name {
   flex: 1 1 0;
   width: 0;
@@ -2249,8 +2250,8 @@
   z-index: 12;
   top: calc(100% + 5px);
   inset-inline-start: 0;
-  width: max-content;
-  max-width: min(320px, calc(100vw - 40px));
+  width: 100%;
+  max-width: 100%;
   max-height: 110px;
   margin: 0;
   padding: 6px 8px;

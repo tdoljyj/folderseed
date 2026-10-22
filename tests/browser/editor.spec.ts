@@ -1397,6 +1397,38 @@ async function expectActionsReceivePointer(page: Page, name: string) {
   }
 }
 
+async function expectInlineControlsInsideTree(page: Page) {
+  const geometry = await page.locator('.fs-inline-editor').evaluate(editor => {
+    const tree = editor.closest<HTMLElement>('.fs-tree')!;
+    const treeBox = tree.getBoundingClientRect();
+    const left = treeBox.left + tree.clientLeft;
+    return {
+      left, right: left + tree.clientWidth, scrollLeft: tree.scrollLeft,
+      controls: [...editor.querySelectorAll('input, button')].map(control => {
+        const box = control.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return {
+          name: control.getAttribute('aria-label'), button: control.tagName === 'BUTTON',
+          x: box.x, y: box.y, width: box.width, height: box.height,
+          receivesPointer: hit === control || !!hit && control.contains(hit),
+        };
+      }),
+    };
+  });
+  expect(geometry.controls.map(control => control.name)).toEqual(['Folder name', 'Save name', 'Cancel editing']);
+  for (const control of geometry.controls) {
+    expect(control.x, `${control.name} starts inside the tree without test-driven scrolling`).toBeGreaterThanOrEqual(geometry.left - 0.5);
+    expect(control.x + control.width, `${control.name} ends inside the tree without test-driven scrolling`).toBeLessThanOrEqual(geometry.right + 0.5);
+    expect(control.receivesPointer, `${control.name} receives a real center pointer hit`).toBe(true);
+    if (control.button) {
+      expect(control.width, `${control.name} target width`).toBe(24);
+      expect(control.height, `${control.name} target height`).toBe(24);
+    }
+  }
+  expect(await page.locator('.fs-tree').evaluate(tree => tree.scrollLeft)).toBe(geometry.scrollLeft);
+  return boxCenter(geometry.controls.find(control => control.name === 'Cancel editing')!);
+}
+
 async function expectSpatialFolderActions(page: Page, name: string) {
   const actions = await expectEightFolderActions(page, name);
   const frame = page.locator('.fs-folder-frame.has-actions');
@@ -1820,8 +1852,22 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     await page.mouse.click(coveredPoint.x, coveredPoint.y);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByLabel('Folder name', { exact: true })).toHaveValue('Selected');
+    await expectInlineControlsInsideTree(page);
     await page.screenshot({ path: testInfo.outputPath(`inline-rename-${layout}.png`), fullPage: true });
-    await page.getByRole('button', { name: 'Cancel editing', exact: true }).click();
+    await inlineName(page).fill('../invalid');
+    await inlineName(page).press('Enter');
+    await expect(inlineError(page)).toBeVisible();
+    const errorBounds = await inlineError(page).evaluate(error => {
+      const tree = error.closest<HTMLElement>('.fs-tree')!;
+      const left = tree.getBoundingClientRect().left + tree.clientLeft;
+      const box = error.getBoundingClientRect();
+      return { left, right: left + tree.clientWidth, x: box.x, width: box.width };
+    });
+    expect(errorBounds.x).toBeGreaterThanOrEqual(errorBounds.left - 0.5);
+    expect(errorBounds.x + errorBounds.width).toBeLessThanOrEqual(errorBounds.right + 0.5);
+    const renameCancel = await expectInlineControlsInsideTree(page);
+    await page.screenshot({ path: testInfo.outputPath(`inline-invalid-name-${layout}.png`), fullPage: true });
+    await page.mouse.click(renameCancel.x, renameCancel.y);
     await expect(page.locator('.fs-selected-path')).toHaveText('Project/Selected');
     await expect(folderRow(page, 'Previous').locator('.fs-folder-select')).toHaveAttribute('aria-pressed', 'false');
 
@@ -1833,7 +1879,8 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     await page.mouse.click(boxCenter(rootRename).x, boxCenter(rootRename).y);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByLabel('Folder name', { exact: true })).toHaveValue('Project');
-    await page.getByRole('button', { name: 'Cancel editing', exact: true }).click();
+    const rootCancel = await expectInlineControlsInsideTree(page);
+    await page.mouse.click(rootCancel.x, rootCancel.y);
 
     const names = Array.from({ length: 24 }, (_, index) => `Folder ${String(index + 1).padStart(2, '0')}`);
     await importText(page, ['Project', ...names.map(name => `  ${name}`)].join('\n'));
@@ -1854,8 +1901,9 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.locator('.fs-inline-placeholder')).toBeVisible();
     await expect(page.getByLabel('Folder name', { exact: true })).toBeFocused();
+    const addCancel = await expectInlineControlsInsideTree(page);
     await page.screenshot({ path: testInfo.outputPath(`inline-add-child-${layout}.png`), fullPage: true });
-    await page.getByRole('button', { name: 'Cancel editing', exact: true }).click();
+    await page.mouse.click(addCancel.x, addCancel.y);
 
     await selectFolder(page, 'Folder 08');
     await tree.evaluate(element => {

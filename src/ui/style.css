@@ -2051,15 +2051,16 @@
 .fs-bottom-drop-guide strong { font-weight: 600; }
 .fs-bottom-drop-guide > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Compact folder actions surround the selected label without covering adjacent rows. */
-.fs-visual-area { container-type: inline-size; }
+/* Floating actions preserve the tree's row pitch and selected-label position. */
+.fs-visual-area { position: relative; container-type: inline-size; }
 .fs-tree { height: 448px; }
-.fs-app .fs-folder-frame {
+.fs-app .fs-folder-frame,
+.fs-app .fs-floating-actions {
   --fs-action-size: 32px;
   --fs-action-height: 24px;
   --fs-action-name-min: 64px;
-  position: relative;
 }
+.fs-app .fs-folder-frame { position: relative; }
 .fs-app .fs-folder-frame.has-actions {
   /* Match the unselected row: 1 px border + 30 px leading space + 20 px glyph + 8 px gap. */
   --fs-action-min-width: calc(60px + var(--fs-action-name-min) + var(--fs-action-size) * 2);
@@ -2068,14 +2069,15 @@
   min-width: var(--fs-action-min-width);
   max-width: max(var(--fs-action-min-width), calc(100% - var(--fs-action-inset, 0px)));
   margin-inline-start: var(--fs-action-inset, 0px);
-  padding-block: var(--fs-action-height);
+  height: 34px;
+  padding-block: 0;
 }
 .fs-app .fs-folder-frame.has-actions > .fs-tree-row {
   display: grid;
   grid-template-columns: var(--fs-action-columns);
   align-items: center;
   min-width: 0;
-  height: var(--fs-action-height);
+  height: 34px;
   padding: 0;
 }
 .fs-app .fs-folder-frame.has-actions .fs-folder-select {
@@ -2103,23 +2105,20 @@
 .fs-app .fs-folder-frame.has-actions :is(.fs-root-label, .fs-row-count, .fs-drag-hint, .fs-disclosure-placeholder) {
   display: none;
 }
-.fs-app .fs-folder-frame.has-actions .fs-disclosure {
+.fs-app .fs-floating-actions {
   position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 1px;
-  width: 18px;
-  min-width: 18px;
-  height: var(--fs-action-height);
-  border-radius: 5px;
+  z-index: 8;
+  height: 68px;
+  pointer-events: none;
 }
 .fs-app .fs-context-actions {
   position: absolute;
+  z-index: 1;
   inset: 0;
   display: grid;
   /* The row sets the intrinsic width; its text-free overlay fills the same name track. */
   grid-template-columns: 30px 28px minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size);
-  grid-template-rows: repeat(3, var(--fs-action-height));
+  grid-template-rows: 24px 20px 24px;
   align-items: center;
   gap: 0;
   padding: 0 1px;
@@ -2128,7 +2127,8 @@
   background: transparent;
   pointer-events: none;
 }
-.fs-app .fs-context-actions button {
+.fs-app .fs-context-actions button,
+.fs-app .fs-floating-disclosure {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2137,21 +2137,34 @@
   min-width: var(--fs-action-size);
   height: var(--fs-action-height);
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid #dbe3ee;
   border-radius: 5px;
   color: #526680;
-  background: transparent;
+  background: #fff;
+  box-shadow: 0 1px 4px #172c4d1a;
   pointer-events: auto;
 }
+.fs-app .fs-floating-disclosure {
+  position: absolute;
+  z-index: 2;
+  /* Keep its 24 px hit area clear of the middle outdent target. */
+  top: -2px;
+  left: 1px;
+  width: 18px;
+  min-width: 18px;
+}
+.fs-app .fs-floating-disclosure:disabled { pointer-events: none; }
 .fs-app .fs-context-actions button[data-action='up'] { grid-area: 1 / 2; }
 .fs-app .fs-context-actions button[data-action='down'] { grid-area: 3 / 2; }
 .fs-app .fs-context-actions button:is([data-action='up'], [data-action='down']) {
-  transform: translateX(calc(10px - var(--fs-action-size) / 2));
+  width: 24px;
+  min-width: 24px;
+  transform: translateX(-2px);
 }
 .fs-app .fs-context-actions button[data-action='outdent'] {
   grid-area: 2 / 1;
-  width: 30px;
-  min-width: 30px;
+  width: 28px;
+  min-width: 28px;
 }
 .fs-app .fs-context-actions button[data-action='indent'] { grid-area: 2 / 4; }
 .fs-app .fs-context-actions button[data-action='delete'] { grid-area: 2 / 5; }
@@ -2161,7 +2174,8 @@
   grid-area: 3 / 3;
   margin-inline-start: var(--fs-action-size);
 }
-.fs-app .fs-context-actions button:hover:not(:disabled) {
+.fs-app .fs-context-actions button:hover:not(:disabled),
+.fs-app .fs-floating-disclosure:hover:not(:disabled) {
   color: #0055b3;
   background: #dceaff;
   border-color: #b9d2f3;
@@ -2179,9 +2193,9 @@
 .fs-advanced-move { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #dde2ea; border-radius: 5px; background: #fff; color: #626268; font-size: 11px; flex-shrink: 0; }
 @media (max-width: 600px) {
   .fs-tree { height: 480px; }
-  .fs-app .fs-folder-frame {
+  .fs-app .fs-folder-frame,
+  .fs-app .fs-floating-actions {
     --fs-action-size: 36px;
-    --fs-action-height: 28px;
     --fs-action-name-min: 72px;
   }
   .fs-advanced-move { min-height: 38px; }
@@ -2539,10 +2553,15 @@
 .fs-app[data-theme='dark'] .fs-context-actions {
   background: transparent;
 }
-.fs-app[data-theme='dark'] .fs-context-actions button {
+.fs-app[data-theme='dark'] .fs-context-actions button,
+.fs-app[data-theme='dark'] .fs-floating-disclosure {
   color: #c2d6f0;
+  background: #28384b;
+  border-color: #465e7a;
+  box-shadow: 0 1px 5px #0005;
 }
-.fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled) {
+.fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled),
+.fs-app[data-theme='dark'] .fs-floating-disclosure:hover:not(:disabled) {
   color: #e4efff;
   background: #34577e;
   border-color: #6b92bf;

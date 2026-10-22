@@ -26,7 +26,18 @@ async function addFolder(page: Page, name: string) {
   await page.getByRole('dialog').getByRole('button', { name: 'Add folder', exact: true }).click();
 }
 async function selectFolder(page: Page, name: string) {
-  await page.locator('.fs-folder-select').filter({ has: page.locator('.fs-folder-name', { hasText: new RegExp(`^${name}$`) }) }).click();
+  const button = page.locator('.fs-folder-select').filter({ has: page.locator('.fs-folder-name', { hasText: new RegExp(`^${name}$`) }) });
+  await button.scrollIntoViewIfNeeded();
+  const point = await button.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    // Floating actions may intentionally cover part of an adjacent row; use a genuinely exposed point.
+    const candidates = [[box.width / 2, box.height / 2], [10, 3], [10, box.height - 3], [box.width / 2, 3], [box.width / 2, box.height - 3]];
+    for (const [x, y] of candidates) {
+      if (document.elementFromPoint(box.x + x, box.y + y)?.closest('button') === element) return { x, y };
+    }
+    throw new Error('The folder has no exposed pointer target.');
+  });
+  await button.click({ position: point });
 }
 async function openFolderActions(page: Page, name?: string) {
   if (name !== undefined) await selectFolder(page, name);
@@ -1225,8 +1236,8 @@ async function expectEightFolderActions(page: Page, name: string) {
     const button = actions.getByRole('button', { name: actionName, exact: true });
     await expect(button).toBeVisible();
     await expect(button.locator('svg')).toHaveCount(1);
-    await expect(button.locator('svg')).toHaveAttribute('width', '14');
-    await expect(button.locator('svg')).toHaveAttribute('height', '14');
+    await expect(button.locator('svg')).toHaveAttribute('width', '16');
+    await expect(button.locator('svg')).toHaveAttribute('height', '16');
   }
   return actions;
 }
@@ -1320,7 +1331,7 @@ async function folderAnchor(page: Page, name: string) {
     const glyph = row.querySelector('.fs-folder-icon svg')!.getBoundingClientRect();
     const label = row.querySelector('.fs-folder-name')!.getBoundingClientRect();
     // Compare tree-content coordinates so browser auto-scrolling is not mistaken for reindentation.
-    return { glyphX: glyph.x - treeBox.x + tree.scrollLeft, nameX: label.x - treeBox.x + tree.scrollLeft, glyphWidth: glyph.width, viewportGlyphX: glyph.x, viewportNameX: label.x, scrollLeft: tree.scrollLeft };
+    return { glyphX: glyph.x - treeBox.x + tree.scrollLeft, nameX: label.x - treeBox.x + tree.scrollLeft, glyphY: glyph.y - treeBox.y + tree.scrollTop, nameY: label.y - treeBox.y + tree.scrollTop, glyphWidth: glyph.width, viewportGlyphX: glyph.x, viewportNameX: label.x, viewportGlyphY: glyph.y, viewportNameY: label.y, scrollLeft: tree.scrollLeft, scrollTop: tree.scrollTop };
   });
 }
 
@@ -1328,11 +1339,36 @@ async function expectFolderAnchor(page: Page, name: string, before: Awaited<Retu
   const after = await folderAnchor(page, name);
   expect(after.glyphX, `${name} folder glyph must not shift horizontally`).toBeCloseTo(before.glyphX, 1);
   expect(after.nameX, `${name} folder name must not shift horizontally`).toBeCloseTo(before.nameX, 1);
+  expect(after.glyphY, `${name} folder glyph must not shift vertically`).toBeCloseTo(before.glyphY, 1);
+  expect(after.nameY, `${name} folder name must not shift vertically`).toBeCloseTo(before.nameY, 1);
   expect(after.glyphWidth, `${name} folder glyph keeps its original size`).toBe(20);
   if (checkViewport) {
     expect(after.scrollLeft, `${name} ordinary row must not trigger horizontal scrolling`).toBe(before.scrollLeft);
+    expect(after.scrollTop, `${name} ordinary row must not trigger vertical scrolling`).toBe(before.scrollTop);
+    expect(after.viewportGlyphY, `${name} folder glyph stays at the same viewport Y`).toBeCloseTo(before.viewportGlyphY, 1);
+    expect(after.viewportNameY, `${name} folder name stays at the same viewport Y`).toBeCloseTo(before.viewportNameY, 1);
     expect(after.viewportGlyphX, `${name} folder glyph stays at the same viewport X`).toBeCloseTo(before.viewportGlyphX, 1);
     expect(after.viewportNameX, `${name} folder name stays at the same viewport X`).toBeCloseTo(before.viewportNameX, 1);
+  }
+}
+
+async function treeLayout(page: Page) {
+  return page.locator('.fs-tree').evaluate(tree => {
+    const origin = tree.getBoundingClientRect();
+    return { scrollHeight: tree.scrollHeight, rows: [...tree.querySelectorAll('.fs-tree-row')].map(row => {
+      const box = row.getBoundingClientRect();
+      return { name: row.querySelector('.fs-folder-name')!.textContent, y: box.y - origin.y + tree.scrollTop, height: box.height };
+    }) };
+  });
+}
+
+async function expectActionsReceivePointer(page: Page, name: string) {
+  const actions = await expectEightFolderActions(page, name);
+  for (const button of await actions.getByRole('button').all()) {
+    await expect.poll(() => button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button') === element;
+    }), { message: `${await button.getAttribute('aria-label')} must receive pointer hits rather than a covered row` }).toBe(true);
   }
 }
 
@@ -1341,6 +1377,7 @@ async function expectSpatialFolderActions(page: Page, name: string, targetWidth:
   const frame = page.locator('.fs-folder-frame.has-actions');
   await expect(frame).toHaveCount(1);
   await frame.scrollIntoViewIfNeeded();
+  await expect.poll(async () => (await actions.boundingBox())!.y - (await frame.boundingBox())!.y).toBeCloseTo(-17, 0);
   const frameBox = (await frame.boundingBox())!;
   const groupBox = (await actions.boundingBox())!;
   const row = folderRow(page, name);
@@ -1351,13 +1388,13 @@ async function expectSpatialFolderActions(page: Page, name: string, targetWidth:
   for (const action of ['up', 'down', 'outdent', 'indent', 'add-sibling', 'add-child', 'rename', 'delete']) {
     boxes[action] = (await actions.locator(`[data-action="${action}"]`).boundingBox())!;
     const box = boxes[action];
-    expect(box.width, `${action} target width`).toBeGreaterThanOrEqual(action === 'outdent' ? 30 : targetWidth);
+    expect(box.width, `${action} target width`).toBeGreaterThanOrEqual(['up', 'down'].includes(action) ? 24 : action === 'outdent' ? 28 : targetWidth);
     expect(box.height, `${action} target height`).toBeGreaterThanOrEqual(targetHeight);
     expect(box.height, `${action} compact target height`).toBeLessThanOrEqual(targetHeight + 1);
     expect(box.x).toBeGreaterThanOrEqual(frameBox.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(frameBox.x + frameBox.width + 1);
-    expect(box.y).toBeGreaterThanOrEqual(frameBox.y - 1);
-    expect(box.y + box.height).toBeLessThanOrEqual(frameBox.y + frameBox.height + 1);
+    expect(box.y).toBeGreaterThanOrEqual(groupBox.y - 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(groupBox.y + groupBox.height + 1);
   }
   // Compare controls with the actual folder SVG, not the row or a detached toolbar.
   expect(boxCenter(boxes.up).x).toBeCloseTo(glyph.x, 0);
@@ -1385,8 +1422,11 @@ async function expectSpatialFolderActions(page: Page, name: string, targetWidth:
       expect(overlapX <= 0.5 || overlapY <= 0.5, `${firstName} must not overlap ${secondName}`).toBe(true);
     }
   }
-  expect(frameBox.height).toBeGreaterThanOrEqual(targetHeight * 3);
-  expect(frameBox.height).toBeLessThanOrEqual(targetHeight * 3 + 2);
+  expect(frameBox.height).toBe(34);
+  expect(groupBox.height).toBe(68);
+  expect(groupBox.y).toBeCloseTo(frameBox.y - 17, 0);
+  expect(await actions.evaluate(element => element.closest('.fs-tree') === null)).toBe(true);
+  await expectActionsReceivePointer(page, name);
   expect(groupBox.width).toBeGreaterThan(0);
   expect(groupBox.height).toBeGreaterThan(0);
   const previousFrame = (await folderRow(page, 'Alpha').locator('..').boundingBox())!;
@@ -1414,7 +1454,7 @@ for (const [layout, width, theme] of [
     const longNameAnchor = await folderAnchor(page, longName);
     await openFolderActions(page, longName);
     await expectFolderAnchor(page, longName, longNameAnchor);
-    const actions = await expectSpatialFolderActions(page, longName, layout === 'mobile' ? 36 : 32, layout === 'mobile' ? 28 : 24);
+    const actions = await expectSpatialFolderActions(page, longName, layout === 'mobile' ? 36 : 32, 24);
     await page.screenshot({ path: testInfo.outputPath(`spatial-folder-actions-${layout}-${theme}.png`), fullPage: true });
     await selectFolder(page, 'Alpha');
     await expectFolderAnchor(page, longName, longNameAnchor);
@@ -1469,7 +1509,7 @@ test('freezes the selected-folder action frame while another folder is dragged',
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Gamma');
 });
 
-test('inserts before or after the complete subtree when dropped in selected-frame padding', async ({ page }) => {
+test('inserts before or after the complete subtree at selected-row edges beneath the floating controls', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   for (const placement of ['before', 'after'] as const) {
     await importText(page, 'Project\n  Alpha\n    Nested\n  Beta\n  Gamma');
@@ -1578,7 +1618,7 @@ test('keeps selection for row gaps, disclosures, action controls, and modal inte
   const frame = page.locator('.fs-folder-frame.has-actions');
   const frameBox = (await frame.boundingBox())!;
   const deleteBox = (await actions.locator('[data-action="delete"]').boundingBox())!;
-  // An unused cell above Delete still belongs to the selected row, not editor whitespace.
+  // A gap immediately above Delete still belongs to the selected row, not editor whitespace.
   await page.mouse.click(deleteBox.x + deleteBox.width / 2, frameBox.y + 4);
   await expectEightFolderActions(page, 'Alpha');
   await page.getByRole('button', { name: 'Collapse Alpha', exact: true }).click();
@@ -1601,7 +1641,7 @@ test('keeps selection for row gaps, disclosures, action controls, and modal inte
   await expectEightFolderActions(page, 'Alpha');
 });
 
-test('selects a dragged folder without inserting an action frame until the drag ends', async ({ page }) => {
+test('selects a dragged folder without showing floating actions until the drag ends', async ({ page }) => {
   await importText(page, 'Project\n  Alpha\n  Beta\n  Gamma');
   await expectNoFolderSelection(page);
   const alphaBefore = (await folderRow(page, 'Alpha').boundingBox())!;
@@ -1630,7 +1670,7 @@ for (const [layout, width, theme] of [
   ['desktop', 1440, 'light'], ['mobile', 360, 'light'],
   ['desktop', 1440, 'dark'], ['mobile', 360, 'dark'],
 ] as const) {
-  test(`shows compact immediate actions and blank-area dismissal on ${theme} ${layout}`, async ({ page }, testInfo) => {
+  test(`shows floating actions without moving folders and dismisses them from blank space on ${theme} ${layout}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: layout === 'mobile' ? 1000 : 1100 });
     await page.evaluate(theme => localStorage.setItem('folderseed:theme:v1', theme), theme);
     await page.reload();
@@ -1638,32 +1678,42 @@ for (const [layout, width, theme] of [
     await expect(page.locator('.fs-app')).toHaveAttribute('data-theme', theme);
     await importText(page, 'Project\n  Alpha\n  References\n    Working files\n  Omega');
     await expectNoFolderSelection(page);
+    const initialLayout = await treeLayout(page);
+    for (const row of initialLayout.rows) expect(row.height).toBe(34);
     for (const name of ['Project', 'Alpha', 'Working files']) {
       const before = await folderAnchor(page, name);
       await selectFolder(page, name);
       await expectFolderAnchor(page, name, before, true);
+      expect(await treeLayout(page)).toEqual(initialLayout);
       await selectFolder(page, 'Omega');
       await expectFolderAnchor(page, name, before, true);
+      expect(await treeLayout(page)).toEqual(initialLayout);
       await page.keyboard.press('Escape');
       await expectFolderAnchor(page, name, before, true);
+      expect(await treeLayout(page)).toEqual(initialLayout);
     }
     await page.getByRole('button', { name: 'Collapse References', exact: true }).click();
     await expect(folderRow(page, 'Working files')).toHaveCount(0);
     const collapsedAnchor = await folderAnchor(page, 'References');
+    const collapsedLayout = await treeLayout(page);
     await selectFolder(page, 'References');
     await expectFolderAnchor(page, 'References', collapsedAnchor, true);
+    expect(await treeLayout(page)).toEqual(collapsedLayout);
     await selectFolder(page, 'Omega');
     await expectFolderAnchor(page, 'References', collapsedAnchor, true);
+    expect(await treeLayout(page)).toEqual(collapsedLayout);
     await page.keyboard.press('Escape');
     await expectFolderAnchor(page, 'References', collapsedAnchor, true);
+    expect(await treeLayout(page)).toEqual(collapsedLayout);
     await page.getByRole('button', { name: 'Expand References', exact: true }).click();
     await page.locator('.fs-tree').evaluate(tree => { tree.scrollLeft = 0; tree.scrollTop = 0; });
     await page.screenshot({ path: testInfo.outputPath(`folder-unselected-${layout}-${theme}.png`), fullPage: true });
     const before = await folderAnchor(page, 'References');
     await selectFolder(page, 'References');
     await expectFolderAnchor(page, 'References', before, true);
+    expect(await treeLayout(page)).toEqual(initialLayout);
     const targetWidth = layout === 'mobile' ? 36 : 32;
-    const targetHeight = layout === 'mobile' ? 28 : 24;
+    const targetHeight = 24;
     await expectSpatialFolderActions(page, 'References', targetWidth, targetHeight);
     const frameBox = (await page.locator('.fs-folder-frame.has-actions').boundingBox())!;
     const row = folderRow(page, 'References');
@@ -1685,6 +1735,7 @@ for (const [layout, width, theme] of [
     await page.locator('.fs-tree-tail').click();
     await expectNoFolderSelection(page);
     await expectFolderAnchor(page, 'References', before, true);
+    expect(await treeLayout(page)).toEqual(initialLayout);
     await page.screenshot({ path: testInfo.outputPath(`folder-deselected-${layout}-${theme}.png`), fullPage: true });
   });
 }
@@ -1697,23 +1748,101 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     await importText(page, names.map((name, depth) => `${'  '.repeat(depth)}${name}`).join('\n'));
     await expect(page.locator('.fs-folder-name')).toHaveText(names);
     const anchors = await Promise.all(names.map(name => folderAnchor(page, name)));
+    const initialLayout = await treeLayout(page);
+    for (const row of initialLayout.rows) expect(row.height).toBe(34);
     for (const [depth, name] of names.entries()) {
       expect(anchors[depth].glyphX).toBeCloseTo(31 + depth * 22, 1);
       expect(anchors[depth].nameX).toBeCloseTo(59 + depth * 22, 1);
       await selectFolder(page, name);
       await expect(folderActions(page, name)).toBeVisible();
       await expectFolderAnchor(page, name, anchors[depth]);
+      expect(await treeLayout(page)).toEqual(initialLayout);
       const otherDepth = depth === 0 ? 1 : 0;
       await selectFolder(page, names[otherDepth]);
       await expectFolderAnchor(page, name, anchors[depth]);
+      expect(await treeLayout(page)).toEqual(initialLayout);
       await expectFolderAnchor(page, names[otherDepth], anchors[otherDepth]);
       await page.keyboard.press('Escape');
       await expectNoFolderSelection(page);
       await expectFolderAnchor(page, name, anchors[depth]);
+      expect(await treeLayout(page)).toEqual(initialLayout);
     }
     await selectFolder(page, names[LIMITS.depth]);
     await expectFolderAnchor(page, names[LIMITS.depth], anchors[LIMITS.depth]);
     expect(await page.locator('.fs-tree').evaluate(tree => tree.scrollWidth > tree.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
+  test(`routes floating controls above adjacent rows and outside the tree edges on ${layout}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1100 });
+    await importText(page, 'Project\n  Previous\n  Selected\n  Next');
+    await selectFolder(page, 'Selected');
+    const previous = (await folderRow(page, 'Previous').boundingBox())!;
+    const rename = folderActions(page, 'Selected').getByRole('button', { name: 'Rename', exact: true });
+    const renameBox = (await rename.boundingBox())!;
+    const coveredPoint = boxCenter(renameBox);
+    expect(coveredPoint.y).toBeGreaterThan(previous.y);
+    expect(coveredPoint.y).toBeLessThan(previous.y + previous.height);
+    await expectActionsReceivePointer(page, 'Selected');
+    await page.screenshot({ path: testInfo.outputPath(`floating-actions-overlap-${layout}.png`), fullPage: true });
+    // Use a real pointer click in the covered row, not a forced or synthetic button action.
+    await page.mouse.click(coveredPoint.x, coveredPoint.y);
+    await expect(page.getByRole('dialog')).toContainText('Rename Selected.');
+    await expect(page.getByLabel('Folder name', { exact: true })).toHaveValue('Selected');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('.fs-selected-path')).toHaveText('Project/Selected');
+    await expect(folderRow(page, 'Previous').locator('.fs-folder-select')).toHaveAttribute('aria-pressed', 'false');
+
+    await selectFolder(page, 'Project');
+    await expectActionsReceivePointer(page, 'Project');
+    const tree = page.locator('.fs-tree');
+    const rootRename = (await folderActions(page, 'Project').getByRole('button', { name: 'Rename', exact: true }).boundingBox())!;
+    expect(boxCenter(rootRename).y).toBeLessThan((await tree.boundingBox())!.y);
+    await page.mouse.click(boxCenter(rootRename).x, boxCenter(rootRename).y);
+    await expect(page.getByRole('dialog')).toContainText('Rename Project.');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    const names = Array.from({ length: 24 }, (_, index) => `Folder ${String(index + 1).padStart(2, '0')}`);
+    await importText(page, ['Project', ...names.map(name => `  ${name}`)].join('\n'));
+    await selectFolder(page, 'Folder 24');
+    await tree.evaluate(element => {
+      const row = [...element.querySelectorAll('.fs-tree-row')].find(row => row.querySelector('.fs-folder-name')?.textContent === 'Folder 24')!;
+      element.scrollTop += row.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom;
+    });
+    const bottomRow = folderRow(page, 'Folder 24');
+    await expect.poll(async () => (await folderActions(page, 'Folder 24').boundingBox())!.y - (await bottomRow.boundingBox())!.y).toBeCloseTo(-17, 0);
+    expect((await bottomRow.boundingBox())!.y + 34).toBeCloseTo((await tree.boundingBox())!.y + (await tree.boundingBox())!.height, 0);
+    await expectActionsReceivePointer(page, 'Folder 24');
+    const addChild = folderActions(page, 'Folder 24').getByRole('button', { name: 'Add child folder', exact: true });
+    const addPoint = boxCenter((await addChild.boundingBox())!);
+    expect(addPoint.y).toBeGreaterThan((await tree.boundingBox())!.y + (await tree.boundingBox())!.height);
+    await page.screenshot({ path: testInfo.outputPath(`floating-actions-bottom-edge-${layout}.png`), fullPage: true });
+    await page.mouse.click(addPoint.x, addPoint.y);
+    await expect(page.getByRole('dialog')).toContainText('Inside Project/Folder 24');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await selectFolder(page, 'Folder 08');
+    await tree.evaluate(element => {
+      const row = [...element.querySelectorAll('.fs-tree-row')].find(row => row.querySelector('.fs-folder-name')?.textContent === 'Folder 08')!;
+      element.scrollTop += row.getBoundingClientRect().y - element.getBoundingClientRect().y - 100;
+    });
+    const anchor = folderRow(page, 'Folder 08');
+    await expect.poll(async () => (await folderActions(page, 'Folder 08').boundingBox())!.y - (await anchor.boundingBox())!.y).toBeCloseTo(-17, 0);
+    const beforeScroll = (await folderActions(page, 'Folder 08').boundingBox())!;
+    await tree.evaluate(element => { element.scrollTop += 34; });
+    await expect.poll(async () => (await folderActions(page, 'Folder 08').boundingBox())!.y).toBeCloseTo(beforeScroll.y - 34, 0);
+    await expectActionsReceivePointer(page, 'Folder 08');
+    await folderActions(page, 'Folder 08').getByRole('button', { name: 'Rename', exact: true }).focus();
+    await tree.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(page.locator('.fs-floating-actions')).toHaveCount(0);
+    await expect(page.locator('.fs-editor')).toBeFocused();
+    await expect(anchor.locator('.fs-folder-select')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.fs-selected-path')).toHaveText('Project/Folder 08');
+    await tree.evaluate(element => { element.scrollTop = 170; });
+    await expect(folderActions(page, 'Folder 08')).toBeVisible();
+    await expect.poll(async () => (await folderActions(page, 'Folder 08').boundingBox())!.y - (await anchor.boundingBox())!.y).toBeCloseTo(-17, 0);
+    await expectActionsReceivePointer(page, 'Folder 08');
   });
 }

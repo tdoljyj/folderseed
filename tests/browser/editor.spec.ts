@@ -33,11 +33,15 @@ async function selectFolder(page: Page, name: string) {
     // Floating actions may intentionally cover part of an adjacent row; use a genuinely exposed point.
     const candidates = [[box.width / 2, box.height / 2], [10, 3], [10, box.height - 3], [box.width / 2, 3], [box.width / 2, box.height - 3]];
     for (const [x, y] of candidates) {
-      if (document.elementFromPoint(box.x + x, box.y + y)?.closest('button') === element) return { x, y };
+      // Keep clear of shared edges: the real mouse may round fractional coordinates slightly inward.
+      const clear = [[0, 0], [-2, 0], [2, 0], [0, -2], [0, 2]].every(([dx, dy]) =>
+        document.elementFromPoint(box.x + x + dx, box.y + y + dy)?.closest('button') === element);
+      if (clear) return { x, y };
     }
     throw new Error('The folder has no exposed pointer target.');
   });
   await button.click({ position: point });
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
 }
 async function openFolderActions(page: Page, name?: string) {
   if (name !== undefined) await selectFolder(page, name);

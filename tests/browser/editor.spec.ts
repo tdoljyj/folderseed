@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
+import { LIMITS } from '../../src/core';
 
 const formatLabels: Record<string, string> = { plain: 'Plain text', markdown: 'Markdown list', ascii: 'ASCII tree', unicode: 'Unicode tree' };
 const formatButton = (page: Page) => page.locator('.fs-format-activate');
@@ -1224,6 +1225,8 @@ async function expectEightFolderActions(page: Page, name: string) {
     const button = actions.getByRole('button', { name: actionName, exact: true });
     await expect(button).toBeVisible();
     await expect(button.locator('svg')).toHaveCount(1);
+    await expect(button.locator('svg')).toHaveAttribute('width', '14');
+    await expect(button.locator('svg')).toHaveAttribute('height', '14');
   }
   return actions;
 }
@@ -1310,6 +1313,29 @@ test('indents and outdents complete subtrees with predictable ordering, undo, an
 type ActionBox = { x: number; y: number; width: number; height: number };
 const boxCenter = (box: ActionBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
+async function folderAnchor(page: Page, name: string) {
+  return folderRow(page, name).evaluate(row => {
+    const tree = row.closest('.fs-tree')!;
+    const treeBox = tree.getBoundingClientRect();
+    const glyph = row.querySelector('.fs-folder-icon svg')!.getBoundingClientRect();
+    const label = row.querySelector('.fs-folder-name')!.getBoundingClientRect();
+    // Compare tree-content coordinates so browser auto-scrolling is not mistaken for reindentation.
+    return { glyphX: glyph.x - treeBox.x + tree.scrollLeft, nameX: label.x - treeBox.x + tree.scrollLeft, glyphWidth: glyph.width, viewportGlyphX: glyph.x, viewportNameX: label.x, scrollLeft: tree.scrollLeft };
+  });
+}
+
+async function expectFolderAnchor(page: Page, name: string, before: Awaited<ReturnType<typeof folderAnchor>>, checkViewport = false) {
+  const after = await folderAnchor(page, name);
+  expect(after.glyphX, `${name} folder glyph must not shift horizontally`).toBeCloseTo(before.glyphX, 1);
+  expect(after.nameX, `${name} folder name must not shift horizontally`).toBeCloseTo(before.nameX, 1);
+  expect(after.glyphWidth, `${name} folder glyph keeps its original size`).toBe(20);
+  if (checkViewport) {
+    expect(after.scrollLeft, `${name} ordinary row must not trigger horizontal scrolling`).toBe(before.scrollLeft);
+    expect(after.viewportGlyphX, `${name} folder glyph stays at the same viewport X`).toBeCloseTo(before.viewportGlyphX, 1);
+    expect(after.viewportNameX, `${name} folder name stays at the same viewport X`).toBeCloseTo(before.viewportNameX, 1);
+  }
+}
+
 async function expectSpatialFolderActions(page: Page, name: string, targetWidth: number, targetHeight: number) {
   const actions = await expectEightFolderActions(page, name);
   const frame = page.locator('.fs-folder-frame.has-actions');
@@ -1325,7 +1351,7 @@ async function expectSpatialFolderActions(page: Page, name: string, targetWidth:
   for (const action of ['up', 'down', 'outdent', 'indent', 'add-sibling', 'add-child', 'rename', 'delete']) {
     boxes[action] = (await actions.locator(`[data-action="${action}"]`).boundingBox())!;
     const box = boxes[action];
-    expect(box.width, `${action} target width`).toBeGreaterThanOrEqual(targetWidth);
+    expect(box.width, `${action} target width`).toBeGreaterThanOrEqual(action === 'outdent' ? 30 : targetWidth);
     expect(box.height, `${action} target height`).toBeGreaterThanOrEqual(targetHeight);
     expect(box.height, `${action} compact target height`).toBeLessThanOrEqual(targetHeight + 1);
     expect(box.x).toBeGreaterThanOrEqual(frameBox.x - 1);
@@ -1385,10 +1411,17 @@ for (const [layout, width, theme] of [
     await expect(page.locator('.fs-app')).toHaveAttribute('data-theme', theme);
     const longName = 'Client deliverables — approved photography and campaign artwork';
     await importText(page, `Project\n  Alpha\n  ${longName}\n    Working files\n  Omega`);
+    const longNameAnchor = await folderAnchor(page, longName);
     await openFolderActions(page, longName);
+    await expectFolderAnchor(page, longName, longNameAnchor);
     const actions = await expectSpatialFolderActions(page, longName, layout === 'mobile' ? 36 : 32, layout === 'mobile' ? 28 : 24);
     await page.screenshot({ path: testInfo.outputPath(`spatial-folder-actions-${layout}-${theme}.png`), fullPage: true });
+    await selectFolder(page, 'Alpha');
+    await expectFolderAnchor(page, longName, longNameAnchor);
+    await page.keyboard.press('Escape');
+    await expectFolderAnchor(page, longName, longNameAnchor);
     if (layout === 'mobile' && theme === 'light') {
+      await selectFolder(page, longName);
       await actions.getByRole('button', { name: 'Rename', exact: true }).click();
       await page.getByLabel('Folder name', { exact: true }).fill('Approved deliverables');
       await page.getByRole('button', { name: 'Save name', exact: true }).click();
@@ -1605,8 +1638,30 @@ for (const [layout, width, theme] of [
     await expect(page.locator('.fs-app')).toHaveAttribute('data-theme', theme);
     await importText(page, 'Project\n  Alpha\n  References\n    Working files\n  Omega');
     await expectNoFolderSelection(page);
-    await page.screenshot({ path: testInfo.outputPath(`folder-unselected-${layout}-${theme}.png`), fullPage: true });
+    for (const name of ['Project', 'Alpha', 'Working files']) {
+      const before = await folderAnchor(page, name);
+      await selectFolder(page, name);
+      await expectFolderAnchor(page, name, before, true);
+      await selectFolder(page, 'Omega');
+      await expectFolderAnchor(page, name, before, true);
+      await page.keyboard.press('Escape');
+      await expectFolderAnchor(page, name, before, true);
+    }
+    await page.getByRole('button', { name: 'Collapse References', exact: true }).click();
+    await expect(folderRow(page, 'Working files')).toHaveCount(0);
+    const collapsedAnchor = await folderAnchor(page, 'References');
     await selectFolder(page, 'References');
+    await expectFolderAnchor(page, 'References', collapsedAnchor, true);
+    await selectFolder(page, 'Omega');
+    await expectFolderAnchor(page, 'References', collapsedAnchor, true);
+    await page.keyboard.press('Escape');
+    await expectFolderAnchor(page, 'References', collapsedAnchor, true);
+    await page.getByRole('button', { name: 'Expand References', exact: true }).click();
+    await page.locator('.fs-tree').evaluate(tree => { tree.scrollLeft = 0; tree.scrollTop = 0; });
+    await page.screenshot({ path: testInfo.outputPath(`folder-unselected-${layout}-${theme}.png`), fullPage: true });
+    const before = await folderAnchor(page, 'References');
+    await selectFolder(page, 'References');
+    await expectFolderAnchor(page, 'References', before, true);
     const targetWidth = layout === 'mobile' ? 36 : 32;
     const targetHeight = layout === 'mobile' ? 28 : 24;
     await expectSpatialFolderActions(page, 'References', targetWidth, targetHeight);
@@ -1623,12 +1678,42 @@ for (const [layout, width, theme] of [
     expect(indentBox.x - (nameBox.x + nameBox.width)).toBeGreaterThanOrEqual(-1);
     expect(indentBox.x - (nameBox.x + nameBox.width)).toBeLessThanOrEqual(2);
     expect(indentBox.x - (renderedName.x + renderedName.width)).toBeLessThanOrEqual(44);
-    expect(frameBox.width).toBeLessThanOrEqual(targetWidth * 4 + Math.max(targetWidth * 2, renderedName.width) + 4);
+    expect(frameBox.width).toBeLessThanOrEqual(30 + 28 + targetWidth * 2 + Math.max(targetWidth * 2, renderedName.width) + 4);
     await expect(page.getByRole('button', { name: 'Edit folder actions', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Close folder actions', exact: true })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`folder-actions-compact-${layout}-${theme}.png`), fullPage: true });
     await page.locator('.fs-tree-tail').click();
     await expectNoFolderSelection(page);
+    await expectFolderAnchor(page, 'References', before, true);
     await page.screenshot({ path: testInfo.outputPath(`folder-deselected-${layout}-${theme}.png`), fullPage: true });
+  });
+}
+
+for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
+  test(`keeps glyph and name anchors at every supported depth on ${layout}`, async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width, height: 1100 });
+    const names = Array.from({ length: LIMITS.depth + 1 }, (_, depth) => `Level ${depth}`);
+    await importText(page, names.map((name, depth) => `${'  '.repeat(depth)}${name}`).join('\n'));
+    await expect(page.locator('.fs-folder-name')).toHaveText(names);
+    const anchors = await Promise.all(names.map(name => folderAnchor(page, name)));
+    for (const [depth, name] of names.entries()) {
+      expect(anchors[depth].glyphX).toBeCloseTo(31 + depth * 22, 1);
+      expect(anchors[depth].nameX).toBeCloseTo(59 + depth * 22, 1);
+      await selectFolder(page, name);
+      await expect(folderActions(page, name)).toBeVisible();
+      await expectFolderAnchor(page, name, anchors[depth]);
+      const otherDepth = depth === 0 ? 1 : 0;
+      await selectFolder(page, names[otherDepth]);
+      await expectFolderAnchor(page, name, anchors[depth]);
+      await expectFolderAnchor(page, names[otherDepth], anchors[otherDepth]);
+      await page.keyboard.press('Escape');
+      await expectNoFolderSelection(page);
+      await expectFolderAnchor(page, name, anchors[depth]);
+    }
+    await selectFolder(page, names[LIMITS.depth]);
+    await expectFolderAnchor(page, names[LIMITS.depth], anchors[LIMITS.depth]);
+    expect(await page.locator('.fs-tree').evaluate(tree => tree.scrollWidth > tree.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }

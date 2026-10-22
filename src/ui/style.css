@@ -2061,13 +2061,13 @@
   position: relative;
 }
 .fs-app .fs-folder-frame.has-actions {
-  --fs-action-min-width: calc(var(--fs-action-size) * 4 + var(--fs-action-name-min) + 2px);
-  --fs-action-margin: min(var(--fs-action-inset, 0px), max(0px, calc(100% - var(--fs-action-min-width))));
-  --fs-action-columns: var(--fs-action-size) var(--fs-action-size) minmax(var(--fs-action-name-min), max-content) var(--fs-action-size) var(--fs-action-size);
+  /* Match the unselected row: 1 px border + 30 px leading space + 20 px glyph + 8 px gap. */
+  --fs-action-min-width: calc(60px + var(--fs-action-name-min) + var(--fs-action-size) * 2);
+  --fs-action-columns: 30px 28px minmax(var(--fs-action-name-min), max-content) var(--fs-action-size) var(--fs-action-size);
   width: fit-content;
   min-width: var(--fs-action-min-width);
-  max-width: calc(100% - var(--fs-action-margin));
-  margin-inline-start: var(--fs-action-margin);
+  max-width: max(var(--fs-action-min-width), calc(100% - var(--fs-action-inset, 0px)));
+  margin-inline-start: var(--fs-action-inset, 0px);
   padding-block: var(--fs-action-height);
 }
 .fs-app .fs-folder-frame.has-actions > .fs-tree-row {
@@ -2082,7 +2082,7 @@
   grid-column: 2 / 4;
   grid-row: 1;
   display: grid;
-  grid-template-columns: var(--fs-action-size) minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   gap: 0;
   width: auto;
   height: 100%;
@@ -2090,7 +2090,7 @@
   padding: 0;
 }
 .fs-app .fs-folder-frame.has-actions .fs-folder-icon {
-  justify-self: center;
+  justify-self: start;
 }
 .fs-app .fs-folder-frame.has-actions .fs-folder-name {
   justify-self: stretch;
@@ -2108,8 +2108,8 @@
   z-index: 2;
   top: 0;
   left: 1px;
-  width: var(--fs-action-size);
-  min-width: var(--fs-action-size);
+  width: 18px;
+  min-width: 18px;
   height: var(--fs-action-height);
   border-radius: 5px;
 }
@@ -2118,7 +2118,7 @@
   inset: 0;
   display: grid;
   /* The row sets the intrinsic width; its text-free overlay fills the same name track. */
-  grid-template-columns: var(--fs-action-size) var(--fs-action-size) minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size);
+  grid-template-columns: 30px 28px minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size);
   grid-template-rows: repeat(3, var(--fs-action-height));
   align-items: center;
   gap: 0;
@@ -2145,7 +2145,14 @@
 }
 .fs-app .fs-context-actions button[data-action='up'] { grid-area: 1 / 2; }
 .fs-app .fs-context-actions button[data-action='down'] { grid-area: 3 / 2; }
-.fs-app .fs-context-actions button[data-action='outdent'] { grid-area: 2 / 1; }
+.fs-app .fs-context-actions button:is([data-action='up'], [data-action='down']) {
+  transform: translateX(calc(10px - var(--fs-action-size) / 2));
+}
+.fs-app .fs-context-actions button[data-action='outdent'] {
+  grid-area: 2 / 1;
+  width: 30px;
+  min-width: 30px;
+}
 .fs-app .fs-context-actions button[data-action='indent'] { grid-area: 2 / 4; }
 .fs-app .fs-context-actions button[data-action='delete'] { grid-area: 2 / 5; }
 .fs-app .fs-context-actions button[data-action='rename'] { grid-area: 1 / 3; }

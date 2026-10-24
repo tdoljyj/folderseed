@@ -3047,7 +3047,9 @@
 }
 .fs-app .fs-folder-icon { flex: 0 0 20px; }
 .fs-app .fs-folder-frame.has-actions {
-  max-width: max(var(--fs-action-min-width), calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 8px));
+  /* A wide shared comment column must not send row controls into the next panel.
+     Keep the name origin fixed; only its visible tail yields to the viewport. */
+  max-width: max(var(--fs-action-min-width), min(calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 8px), calc(100cqw - var(--fs-action-inset, 0px) - 36px)));
 }
 .fs-app .fs-folder-comment {
   position: absolute;

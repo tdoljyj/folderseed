@@ -496,7 +496,9 @@ for (const { width, theme, locale } of [
       }));
       await testInfo.attach(`action-centers-${width}-${name === longName ? 'long-name' : name}`, { body: JSON.stringify(actions, null, 2), contentType: 'application/json' });
       const cell = (await comment(page, name).boundingBox())!;
+      const area = (await page.locator('.fs-visual-area').boundingBox())!;
       for (const action of actions) {
+        expect(action.right, `${name}: ${action.action} remains inside the editor`).toBeLessThanOrEqual(area.x + area.width);
         expect(action.width).toBe(24); expect(action.height).toBe(24);
         expect(action.inViewport, `${name}: ${action.action} center is visible`).toBe(true);
         expect(action.hit, `${name}: ${action.action} center (${action.x}, ${action.y}) reached ${action.hitTarget}`).toBe(true);
@@ -561,3 +563,37 @@ test('keeps every comment aligned for a deep mobile document without page overfl
   await commentInput(page).press('Escape');
   await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath('aligned-deep-mobile-comments.png') });
 });
+
+for (const width of [1440, 768]) for (const annotated of [false, true]) {
+  test(`bounds all eight long-name controls inside the ${width}px editor with comments ${annotated}`, async ({ page }, testInfo) => {
+    await load(page, 'en', width, width === 1440 ? 'light' : 'dark');
+    const name = 'Client deliverables — approved photography and campaign artwork';
+    const note = annotated ? ' // Complete annotation' : '';
+    await importFile(page, `Project${note}\n    Parent${note}\n        Before${note}\n        ${name}${note}\n            Child${note}\n        After${note}`);
+    await folder(page, name).locator('.fs-folder-icon').evaluate(element => element.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' }));
+    const before = await geometry(page, name);
+    await folder(page, name).locator('.fs-folder-icon').click();
+    stable(before, await geometry(page, name));
+    const targets = await page.locator('.fs-context-actions button').evaluateAll(elements => elements.filter(element => getComputedStyle(element).visibility === 'visible').map(element => {
+      const box = element.getBoundingClientRect(), panel = element.closest('.fs-visual-area')!.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return { action: element.getAttribute('data-action'), width: box.width, height: box.height, inside: box.left >= panel.left && box.right <= panel.right, hit: hit === element || !!hit && element.contains(hit) };
+    }));
+    expect(targets).toHaveLength(8);
+    for (const target of targets) {
+      expect(target.width).toBe(24); expect(target.height).toBe(24);
+      expect(target.inside, `${target.action} belongs inside the editor`).toBe(true);
+      expect(target.hit, `${target.action} receives its real center click`).toBe(true);
+    }
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`bounded-long-actions-${width}-${annotated}.png`) });
+    await action(page, 'rename').click();
+    await expect(page.locator('.fs-inline-name')).toHaveValue(name);
+    await page.locator('.fs-inline-name').press('Escape');
+    stable(before, await geometry(page, name));
+    await clearSelection(page);
+    stable(before, await geometry(page, name));
+    await chooseFormat(page, 1);
+    expect(await page.locator('.fs-text-area textarea').inputValue()).toContain(name);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  });
+}

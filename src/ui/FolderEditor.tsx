@@ -449,7 +449,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       setSelectedId(anchorId);
       if (kind === 'add') setCollapsed(previous => { const next = new Set(previous); next.delete(id); return next; });
     });
-    inlineInput.current?.focus({ preventScroll: true }); inlineInput.current?.select();
+    // Native focus also reveals a newly added row beyond the tree's scroll edge.
+    inlineInput.current?.focus(); inlineInput.current?.select();
   }
   function cancelInline() {
     const edit = inlineRef.current;

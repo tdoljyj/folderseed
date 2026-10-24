@@ -209,7 +209,7 @@ test.describe('compact layout with native pointer dragging', () => {
     const before = await page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1')!).document);
     await page.evaluate(() => document.addEventListener('dragstart', event => {
       document.documentElement.dataset.compactDragTrusted = String(event.isTrusted);
-    }, { once: true }));
+    }, { capture: true, once: true }));
     const grip = (await row(page, SELECTED).locator('.fs-drag-hint').boundingBox())!;
     const target = (await row(page, 'Before').boundingBox())!;
     await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);

@@ -2163,7 +2163,7 @@
 }
 .fs-app .fs-context-actions button[data-action='outdent'] {
   grid-area: 2 / 1;
-  margin-left: 30px;
+  margin-left: 28px;
 }
 .fs-app .fs-context-actions button[data-action='indent'] { grid-area: 2 / 4; }
 .fs-app .fs-context-actions button[data-action='delete'] { grid-area: 2 / 5; }
@@ -2980,10 +2980,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 18px;
-  width: 18px;
+  flex: 0 0 16px;
+  width: 16px;
   height: 26px;
-  margin: 0 6px 0 0;
+  margin: 0 8px 0 0;
 }
 .fs-app .fs-drag-hint svg { pointer-events: none; }
 .fs-app .fs-tree-row.is-selected > .fs-drag-hint { opacity: 1; }
@@ -3032,3 +3032,6 @@
 }
 .fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled) { color: #e3efff; background: #33475e; }
 .fs-app[data-theme='dark'] .fs-context-actions .fs-context-delete:hover:not(:disabled) { color: #ffc3c3; background: #573439; }
+
+/* Honor the responsive canvas height even when the mobile panel sizes itself. */
+.fs-app .fs-preview-canvas { flex: 0 0 auto; }

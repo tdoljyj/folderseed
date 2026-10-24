@@ -103,7 +103,7 @@ for (const scenario of cases) {
       await page.mouse.move(0, 0);
       const before = await geometry(page, name);
       expect(before.gripFirst).toBe(true);
-      expect(before.grip.width).toBe(18);
+      expect(before.grip.width).toBe(16);
       expect(before.gripHasIcon).toBe(depth > 0);
       expect(before.draggable).toBe(depth > 0);
       expect(before.count.y).toBeCloseTo(before.row.y, 1);

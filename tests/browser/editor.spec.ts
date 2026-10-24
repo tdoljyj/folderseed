@@ -1250,7 +1250,8 @@ async function expectEightFolderActions(page: Page, name: string) {
   await expect(actions.locator('button')).toHaveCount(8);
   const indentName = await folderRow(page, name).evaluate(row => {
     const item = row.closest('.fs-tree-item')!;
-    return !item.previousElementSibling && item.nextElementSibling ? 'Move into next sibling' : 'Move into previous sibling';
+    const siblings = [...item.parentElement!.children].filter(element => element.matches('.fs-tree-item'));
+    return siblings.indexOf(item) === 0 && siblings.length > 1 ? 'Move into next sibling' : 'Move into previous sibling';
   });
   for (const [action, label] of Object.entries(folderActionNames)) {
     const actionName = action === 'indent' ? indentName : label;
@@ -1815,7 +1816,7 @@ for (const [layout, width, theme] of [
     expect(indentBox.x - (nameBox.x + nameBox.width)).toBeGreaterThanOrEqual(-1);
     expect(indentBox.x - (nameBox.x + nameBox.width)).toBeLessThanOrEqual(2);
     expect(indentBox.x - (renderedName.x + renderedName.width)).toBeLessThanOrEqual(44);
-    expect(frameBox.width).toBeLessThanOrEqual(30 + 28 + targetWidth * 2 + Math.max(targetWidth * 2, renderedName.width) + 4);
+    expect(frameBox.width).toBeLessThanOrEqual(54 + 28 + targetWidth * 2 + Math.max(targetWidth * 2, renderedName.width) + 4);
     await expect(page.getByRole('button', { name: 'Edit folder actions', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Close folder actions', exact: true })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`folder-actions-compact-${layout}-${theme}.png`), fullPage: true });

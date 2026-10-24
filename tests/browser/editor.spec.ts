@@ -946,10 +946,21 @@ async function beginPointerFolderDrag(page: Page, sourceName: string) {
   await page.mouse.move(x - 14, box.y + box.height / 2, { steps: 4 });
 }
 
+async function pointerXAtDepth(page: Page, depth: number) {
+  return page.locator('.fs-tree').evaluate((tree, desiredDepth) => {
+    const style = getComputedStyle(tree), rect = tree.getBoundingClientRect();
+    const leading = parseFloat(style.getPropertyValue('--fs-tree-leading'));
+    const first = parseFloat(style.getPropertyValue('--fs-tree-first-indent'));
+    const step = parseFloat(style.getPropertyValue('--fs-tree-indent'));
+    // The far-left probe remains inside the tree after unused leading padding is removed.
+    return rect.x + Math.max(1, leading + first + (desiredDepth - 1) * step + 5);
+  }, depth);
+}
+
 async function hoverAfterAtDepth(page: Page, targetName: string, depth: number) {
   const tree = (await page.locator('.fs-tree').boundingBox())!;
   const target = (await folderRow(page, targetName).boundingBox())!;
-  const x = tree.x + (depth - 1) * 22 + 5;
+  const x = await pointerXAtDepth(page, depth);
   const y = target.y + target.height - 2;
   await page.mouse.move(x, y, { steps: 12 });
   // A second pointer movement ensures Chromium dispatches a dragover at the chosen boundary.
@@ -961,7 +972,7 @@ async function hoverTreeWhitespaceAtDepth(page: Page, depth: number, useTail: bo
   const rows = page.locator('.fs-tree-row');
   const last = (await rows.last().boundingBox())!;
   const target = useTail ? (await page.locator('.fs-tree-tail').boundingBox())! : tree;
-  const x = tree.x + (depth - 1) * 22 + 5;
+  const x = await pointerXAtDepth(page, depth);
   const y = useTail ? target.y + target.height / 2 : Math.min(tree.y + tree.height - 12, last.y + last.height + 40);
   expect(y).toBeGreaterThan(last.y + last.height);
   await page.mouse.move(x, y, { steps: 12 });
@@ -1233,9 +1244,9 @@ test('keeps adjacent ancestor bands and their trailing whitespace free of dead d
   await expect(last).toHaveClass(/is-active/);
   await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
   // The exact bottom boundary returns to the existing horizontal whitespace target.
-  const tree = (await page.locator('.fs-tree').boundingBox())!;
-  await page.mouse.move(tree.x + 39, lastBox.y + lastBox.height, { steps: 8 });
-  await page.mouse.move(tree.x + 40, lastBox.y + lastBox.height);
+  const rootChildX = await pointerXAtDepth(page, 1);
+  await page.mouse.move(rootChildX - 1, lastBox.y + lastBox.height, { steps: 8 });
+  await page.mouse.move(rootChildX, lastBox.y + lastBox.height);
   await expect(page.locator('.fs-drop-line.is-after')).toBeVisible();
   await expect(page.locator('.fs-tree-help')).toContainText('Release to insert after A');
   await page.mouse.up();

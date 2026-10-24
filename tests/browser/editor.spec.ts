@@ -952,16 +952,22 @@ async function pointerXAtDepth(page: Page, depth: number) {
     const leading = parseFloat(style.getPropertyValue('--fs-tree-leading'));
     const first = parseFloat(style.getPropertyValue('--fs-tree-first-indent'));
     const step = parseFloat(style.getPropertyValue('--fs-tree-indent'));
-    // The far-left probe remains inside the tree after unused leading padding is removed.
-    return rect.x + Math.max(1, leading + first + (desiredDepth - 1) * step + 5);
+    const row = tree.querySelector('.fs-tree-row')!;
+    const cornerInset = parseFloat(getComputedStyle(row).borderBottomLeftRadius) + 1;
+    // Bottom-edge probes must hit the rounded row, not its transparent outer corner.
+    const offset = desiredDepth <= 0 ? cornerInset : leading + first + (desiredDepth - 1) * step + step / 2;
+    return rect.x + Math.max(cornerInset, offset);
   }, depth);
 }
 
 async function hoverAfterAtDepth(page: Page, targetName: string, depth: number) {
-  const tree = (await page.locator('.fs-tree').boundingBox())!;
   const target = (await folderRow(page, targetName).boundingBox())!;
   const x = await pointerXAtDepth(page, depth);
   const y = target.y + target.height - 2;
+  expect(await folderRow(page, targetName).evaluate((row, point) => [point.x, point.x + 1].every(x => {
+    const hit = document.elementFromPoint(x, point.y);
+    return hit === row || !!hit && row.contains(hit);
+  }), { x, y }), 'after-edge pointer reaches the intended rounded row').toBe(true);
   await page.mouse.move(x, y, { steps: 12 });
   // A second pointer movement ensures Chromium dispatches a dragover at the chosen boundary.
   await page.mouse.move(x + 1, y);
@@ -997,6 +1003,20 @@ test('chooses leaf, parent, and root-child insertion levels by moving a real dra
   // The root itself is never a sibling destination, even when the pointer moves farther left.
   await hoverAfterAtDepth(page, 'C', 0);
   expect((await page.locator('.fs-drop-line.is-after').boundingBox())!.x).toBeCloseTo(positions[2], 0);
+  // Sample the usable leftmost band, including its inner corner boundary.
+  const treeLeft = (await page.locator('.fs-tree').boundingBox())!.x;
+  const leafBox = (await folderRow(page, 'C').boundingBox())!;
+  for (const offset of [8, 11, 20]) {
+    const point = { x: treeLeft + offset, y: leafBox.y + leafBox.height - 2 };
+    expect(await folderRow(page, 'C').evaluate((row, point) => {
+      const hit = document.elementFromPoint(point.x, point.y);
+      return hit === row || !!hit && row.contains(hit);
+    }, point)).toBe(true);
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.move(point.x + 0.5, point.y);
+    await expect(page.locator('.fs-tree-help')).toContainText('Release to insert after A');
+    expect((await page.locator('.fs-drop-line.is-after').boundingBox())!.x).toBeCloseTo(positions[2], 0);
+  }
   await hoverAfterAtDepth(page, 'C', 3);
   await page.mouse.up();
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/A/B/Source');

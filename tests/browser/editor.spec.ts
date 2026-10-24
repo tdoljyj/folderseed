@@ -540,7 +540,8 @@ test('keeps syntax-like names created visually unchanged after refresh', async (
   await expect(page.locator('.fs-folder-name')).toHaveText(['- Notes', '├── Literal']);
   await chooseTextFormat(page, 'plain');
   await expect(formatButton(page)).toHaveText(formatLabels['plain']);
-  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes\n    ├── Literal');
+  // Renaming keeps the template's metadata as well as the literal folder punctuation.
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes // The starting point for your folder structure.\n    ├── Literal');
   await page.evaluate(() => {
     const key = 'folderseed:draft:v1';
     const stored = JSON.parse(localStorage.getItem(key)!);
@@ -549,6 +550,7 @@ test('keeps syntax-like names created visually unchanged after refresh', async (
   await page.reload();
   await expect(formatButton(page)).toHaveText(formatLabels['plain']);
   await expect(page.locator('.fs-preview-root')).toContainText('- Notes');
+  await expect(page.locator('.fs-preview-comment')).toHaveText(['The starting point for your folder structure.']);
   await expect(page.locator('.fs-save-state')).toHaveText('Saved on this device');
 });
 

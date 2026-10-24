@@ -9,6 +9,7 @@ No account, backend, API key, or command-line knowledge is needed to use the edi
 ## What you can do
 
 - Add, rename, delete, reorder, and move folders in a visual editor.
+- Add a short comment beside any folder without changing its name or ZIP path.
 - Undo and redo changes, start from a template, and keep a local draft between visits.
 - Choose System, Light, or Dark appearance without changing your folder draft.
 - Edit plain outlines, Markdown lists, or ASCII/Unicode trees. Pasted and imported text supports **2 spaces, 4 spaces, or tabs**. Generated outlines use four spaces; there is no indentation setting to configure.
@@ -33,6 +34,14 @@ No dragging is required. A fresh workspace has no folder selected. Click a folde
 
 With focus in the editor, use **Ctrl+Z** (Mac: **Cmd+Z**) to undo visual changes, including drag reordering. Redo with **Ctrl/Cmd+Shift+Z** or **Ctrl+Y**. Text fields and editable content keep their native text undo; document shortcuts are paused in dialogs and during input-method composition. Shortcuts do not capture keys from controls outside an embedded FolderSeed editor.
 
+## Folder comments
+
+Use the comment column to the right of a folder name to add a note, or click an existing comment to edit it. The field opens beside the row without changing its height or the surrounding panels. Long comments are shortened in the column; their full text is available when editing and in the tooltip. Press Enter, choose **Save comment**, or leave the field with a valid value to save. Escape or **Cancel comment** discards the unfinished edit. Clear the field and save to remove a comment. Invalid input stays open with an error; input-method composition and native text undo are preserved. Committed changes support document Undo/Redo and browser autosave. As with unfinished inline names, unfinished comment input is not saved; leaving with a changed value asks for confirmation.
+
+Comments are **literal single-line metadata**, not part of folder names, paths, or executable markup. Each comment allows up to **500 Unicode characters**; all comments together may contain at most **262,144 UTF-8 bytes (256 KiB)**. Newlines, control characters, and invalid Unicode are rejected. The visual preview, text/Markdown exports, JSON, SVG, and PNG include comments. **ZIP ignores comments** and contains the same empty folder entries as an unannotated structure.
+
+Every built-in template folder includes a starting comment. Template comments use the interface language when that template is created, then become ordinary editable project data. Changing the interface language later never translates or replaces existing comments.
+
 ## Workspace layout
 
 On desktop, the sidebar stays within the viewport while the main page scrolls. The brand and lower privacy/settings area remain anchored; on shorter screens, the navigation and templates scroll inside the sidebar. At extremely short viewport heights, the sidebar itself can scroll so no control becomes unreachable. The mobile header keeps its normal page-scrolling behavior.
@@ -45,7 +54,7 @@ Open the **FolderSeed** menu at the bottom of the sidebar, then choose **Setting
 
 The preference is saved separately from your folder draft, under `folderseed:theme:v1`. Changing appearance does not apply, discard, or alter unfinished text. If browser storage is blocked, the setting still works for the current session and Settings shows a session-only notice. Themes affect the editor, not the exported folder structure or a surrounding host application.
 
-Settings also includes **Language**. **Automatic** follows the first supported browser language and reacts to language changes. You can choose English, Simplified Chinese, Traditional Chinese, Spanish, French, German, Brazilian Portuguese, Japanese, Korean, Arabic, Hindi, or Russian explicitly. The choice applies immediately and is saved independently under `folderseed:language:v1`; returning to Automatic reads the current browser preferences again. Arabic uses right-to-left interface layout, while directory trees, paths, and outline syntax retain their structural direction. User folder names, raw drafts, and exported project data are never translated. Language settings are scoped to the embedded editor and do not change a host page's language or direction.
+Settings also includes **Language**. **Automatic** follows the first supported browser language and reacts to language changes. You can choose English, Simplified Chinese, Traditional Chinese, Spanish, French, German, Brazilian Portuguese, Japanese, Korean, Arabic, Hindi, or Russian explicitly. The choice applies immediately and is saved independently under `folderseed:language:v1`; returning to Automatic reads the current browser preferences again. Arabic uses right-to-left interface layout, while directory trees, paths, and outline syntax retain their structural direction. Existing folder names, comments, raw drafts, and exported project data are never translated. New template comments are localized only when the template is created. Language settings are scoped to the embedded editor and do not change a host page's language or direction.
 
 ## Choose the right export
 
@@ -59,7 +68,7 @@ The six export cards remain ZIP, Plain text, Markdown, JSON, SVG, and PNG. **Pla
 | **Unicode tree** | A tree with `├──` and `└──` connectors in a `.tree.txt` file. | Yes |
 | **Markdown** | A nested bullet list in a `.md` file. | Yes |
 | **Markdown tree** | A fenced Unicode tree in a `.tree.md` file, preserving the earlier Markdown export style. | Yes |
-| **JSON** | The complete versioned document, including stable folder IDs. Best for backup or integration. | Yes |
+| **JSON** | The complete versioned document, including stable folder IDs and comments. Best for backup or integration. | Yes |
 | **SVG** | A scalable image of the directory structure. | No |
 | **PNG** | A raster image for sharing. | No |
 
@@ -171,6 +180,25 @@ My project
 `-- Media
 ```
 
+### Comments in text
+
+Append an exact **` // `** separator (a space, two slashes, and a space) after a folder name to add a comment. The first separator starts the comment; later separators remain literal comment text. The same suffix works in plain, ASCII, Unicode, and supported fenced trees:
+
+```text
+My project // Everything for this project
+    Documents // Notes and reference material
+    Media // Source assets // keep originals
+```
+
+Markdown lists use the same suffix inside each whole-label code span:
+
+```markdown
+- `My project // Everything for this project`
+    - `Documents // Notes and reference material`
+```
+
+Generated Markdown chooses safe code-span delimiters when a label contains backticks. Comments are not rendered as Markdown or HTML. Slashes remain forbidden in folder names, so the separator cannot turn a valid folder name into a different name. An empty comment is omitted from saved data and generated text. Comments follow folders through renaming, reordering, and moving; editing only a comment does not rename its folder.
+
 ### File import versus pasted text
 
 File imports use their extension to avoid guessing away parts of a folder name:
@@ -236,16 +264,38 @@ import {
   createDocument,
   formatTree,
   serializeJSON,
+  setFolderComment,
 } from './src/core';
 
 const initial = createDocument('My project');
 const updated = addFolder(initial, initial.root.id, 'Documents');
+const annotated = setFolderComment(updated, updated.root.children[0].id, 'Notes and reference material');
 
-console.log(formatTree(updated));
-const backup = serializeJSON(updated);
+console.log(formatTree(annotated));
+const backup = serializeJSON(annotated);
 ```
 
 Import text with `parseText(text, 'auto', 'auto')` or JSON with `parseJSON(text)`. Use `formatText(document, format, indent)` to produce a chosen text representation; `parseIndented` and `formatIndented` remain available for existing integrations. Validate untrusted object input with `validateDocument(input)` before using it. Validation failures are `DirectoryError` instances with a stable `code` and, where applicable, a `line`.
+
+`FolderNode` has an optional `comment?: string` field. Use `setFolderComment(document, folderId, text)` for an immutable, validated update; passing an empty string removes the field. `validateComment(text)` validates a standalone comment, while `validateDocument` also enforces the combined comment-byte budget. `formatFolderLabel(node)` formats the name and optional comment suffix; paths and ZIP entry names continue to use `node.name` alone.
+
+### JSON compatibility
+
+The JSON wire format uses **`version: 2` when any folder has a comment**, and **`version: 1` when none do**. `parseJSON` and `validateDocument` read both versions and preserve folder IDs. Older version-1 backups remain readable; older FolderSeed releases that do not understand version 2 should not be used to edit annotated backups. Importing and then exporting an unannotated version-2 document produces version 1.
+
+The framework-independent `DirectoryDocument` returned by the current API retains its internal `version: 1` discriminant, including when its nodes have comments. Use **`serializeJSON(document)`**, rather than serializing that internal object directly, for the versioned interchange format. The standalone draft also stores the versioned wire document, while its existing `folderseed:draft:v1` storage key stays unchanged. No manual local-storage migration is needed.
+
+```json
+{
+  "version": 2,
+  "root": {
+    "id": "project",
+    "name": "My project",
+    "comment": "Everything for this project",
+    "children": []
+  }
+}
+```
 
 ### React editor
 
@@ -275,10 +325,10 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 
 ## Privacy and safety
 
-- Editing, validation, and export happen in the browser. Folder names, imported outlines, and drafts are not uploaded by the app.
+- Editing, validation, and export happen in the browser. Folder names, comments, imported outlines, and drafts are not uploaded by the app.
 - The app includes no analytics. Loading the hosted site sends ordinary requests for HTML, scripts, styles, and the bundled font to GitHub Pages; GitHub may collect request information such as IP addresses under its [Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). Local-first editing does not mean the host receives no web requests.
 - The application does not scan or write your filesystem. It generates downloads in memory.
-- Folder names are treated as text, not HTML or commands. No scripts are generated or run.
+- Folder names and comments are treated as text, not HTML or commands. No scripts are generated or run.
 - Unsafe names, path traversal, control characters, operating-system reserved names, and duplicate sibling names are rejected.
 - ZIP entries are folder-only, use validated paths, and preserve empty folders.
 - Local drafts use browser storage and include raw editor text, even when invalid or empty, together with its mode, format, and the last valid document. An unreadable saved draft is preserved under a timestamped recovery key before the active draft is replaced; if that backup cannot be saved, autosave pauses rather than overwriting the original. Clearing site data, private browsing, storage restrictions, or a different browser can remove or hide them. **Export JSON for a portable backup.**
@@ -288,6 +338,7 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 
 - One root, at most **500 folders**, and at most **32 nested levels** below the root.
 - Names are at most **100 Unicode characters** and **255 UTF-8 bytes**. Names are normalized to NFC; sibling comparisons are case-insensitive.
+- Comments are single-line text, at most **500 Unicode characters each** and **262,144 UTF-8 bytes combined**. They do not create files or change folder names.
 - Text/JSON imports are limited to **1 MB**.
 - PNG export is limited to **8,192 pixels per edge** and **32 million pixels**. Large structures should use SVG instead.
 - Folder-only: no real files, file contents, symbolic links, filesystem import, or ZIP import.
@@ -299,7 +350,7 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 
 ## Development and contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Keep public code, documentation, comments, and UI copy in English. International folder names are supported and covered by validation and export tests.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Keep public documentation, source comments, and commit messages in English. UI translations belong in the locale catalogs. International folder names and user-authored comments are supported and covered by validation and export tests.
 
 ## License
 

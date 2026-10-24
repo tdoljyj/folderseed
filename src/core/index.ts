@@ -2,6 +2,7 @@
 export interface FolderNode {
   id: string;
   name: string;
+  comment?: string;
   children: FolderNode[];
 }
 
@@ -20,7 +21,7 @@ export interface FlatFolder {
   path: string;
 }
 
-export const LIMITS = Object.freeze({ nodes: 500, depth: 32, nameLength: 100, nameBytes: 255, textBytes: 1_000_000 });
+export const LIMITS = Object.freeze({ nodes: 500, depth: 32, nameLength: 100, nameBytes: 255, commentLength: 500, commentBytes: 262_144, textBytes: 1_000_000 });
 
 export class DirectoryError extends Error {
   readonly code: string;
@@ -73,12 +74,40 @@ function checkSize(text: string): void {
   if (new TextEncoder().encode(text).byteLength > LIMITS.textBytes) fail('TEXT_TOO_LARGE', `Input cannot exceed ${LIMITS.textBytes / 1_000_000} MB.`);
 }
 
+/** Comments are literal single-line text, never names, paths, or markup. */
+export function validateComment(value: unknown, line?: number): string {
+  if (typeof value !== 'string') fail('INVALID_COMMENT', 'Folder comments must be text.', line);
+  if ([...value].length > LIMITS.commentLength) fail('COMMENT_TOO_LONG', `Folder comments cannot exceed ${LIMITS.commentLength} characters.`, line);
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(value) || [...value].some(char => {
+    const point = char.codePointAt(0)!;
+    return (point >= 0xd800 && point <= 0xdfff) || (point >= 0xfdd0 && point <= 0xfdef) || (point & 0xffff) >= 0xfffe;
+  })) fail('UNSAFE_COMMENT', 'Folder comments must be one line without control characters or invalid Unicode.', line);
+  return value;
+}
+
+/** The first exact delimiter is unambiguous because slashes are invalid in names. */
+function parseFolderLabel(label: string, line: number): Pick<FolderNode, 'name' | 'comment'> {
+  const delimiter = label.indexOf(' // ');
+  let name = delimiter < 0 ? label : label.slice(0, delimiter);
+  const comment = delimiter < 0 ? '' : validateComment(label.slice(delimiter + 4), line);
+  // A single trailing slash is an optional folder marker, never a path separator.
+  if (name.endsWith('/') && !name.endsWith('//')) name = name.slice(0, -1);
+  return { name: validateName(name, line), ...(comment === '' ? {} : { comment }) };
+}
+
+export function formatFolderLabel(node: Pick<FolderNode, 'name' | 'comment'>): string {
+  const name = validateName(node.name);
+  const comment = node.comment === undefined ? '' : validateComment(node.comment);
+  return comment === '' ? name : `${name} // ${comment}`;
+}
+
 /** Validate untrusted JSON and return a clean deep copy; unknown properties are not retained. */
 export function validateDocument(input: unknown): DirectoryDocument {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_DOCUMENT', 'The project must be a JSON object.');
   const doc = input as Record<string, unknown>;
-  if (doc.version !== 1) fail('UNSUPPORTED_VERSION', 'Unsupported project version. Please use a version: 1 document.');
+  if (doc.version !== 1 && doc.version !== 2) fail('UNSUPPORTED_VERSION', 'Unsupported project version. Please use a version: 1 or version: 2 document.');
   let count = 0;
+  let commentBytes = 0;
   const ids = new Set<string>();
   const seen = new WeakSet<object>();
   function visit(value: unknown, depth: number): FolderNode {
@@ -92,6 +121,9 @@ export function validateDocument(input: unknown): DirectoryDocument {
     if (ids.has(node.id)) fail('DUPLICATE_ID', 'The project contains duplicate folder IDs.');
     ids.add(node.id);
     const name = validateName(node.name);
+    const comment = node.comment === undefined ? '' : validateComment(node.comment);
+    commentBytes += new TextEncoder().encode(comment).byteLength;
+    if (commentBytes > LIMITS.commentBytes) fail('COMMENTS_TOO_LARGE', 'Folder comments together cannot exceed 256 KB.');
     if (!Array.isArray(node.children)) fail('INVALID_CHILDREN', 'Each folder must have a children array.');
     const children: FolderNode[] = [];
     const siblingNames = new Set<string>();
@@ -102,7 +134,7 @@ export function validateDocument(input: unknown): DirectoryDocument {
       siblingNames.add(key);
       children.push(cleanChild);
     }
-    return { id: node.id, name, children };
+    return { id: node.id, name, ...(comment === '' ? {} : { comment }), children };
   }
   return { version: 1, root: visit(doc.root, 0) };
 }
@@ -119,7 +151,14 @@ export function parseJSON(text: string): DirectoryDocument {
 }
 
 export function serializeJSON(doc: DirectoryDocument): string {
-  return JSON.stringify(validateDocument(doc), null, 2);
+  const clean = validateDocument(doc);
+  const version = flatten(clean).some(({ node }) => node.comment !== undefined) ? 2 : 1;
+  const output = { version, root: clean.root };
+  let json = JSON.stringify(output, null, 2);
+  // Keep even maximum-size annotated projects re-importable within the input cap.
+  if (new TextEncoder().encode(json).byteLength > LIMITS.textBytes) json = JSON.stringify(output);
+  checkSize(json);
+  return json;
 }
 
 interface SourceLine { text: string; line: number }
@@ -193,9 +232,7 @@ export function parseIndented(text: string, indent: ParseIndent = 'auto'): Direc
     if (depth > previousDepth + 1) fail('INDENT_JUMP', 'Do not skip a folder level. Increase indentation by one level at a time.', source.line);
     if (depth > LIMITS.depth) fail('TOO_DEEP', `A tree cannot exceed ${LIMITS.depth} levels below its root.`, source.line);
     if (++count > LIMITS.nodes) fail('TOO_MANY_FOLDERS', `A project can contain at most ${LIMITS.nodes} folders.`, source.line);
-    // A single trailing slash is an optional folder marker, never a path separator.
-    if (name.endsWith('/') && !name.endsWith('//')) name = name.slice(0, -1);
-    const node: FolderNode = { id: newId(), name: validateName(name, source.line), children: [] };
+    const node: FolderNode = { id: newId(), ...parseFolderLabel(name, source.line), children: [] };
     if (depth === 0) root = node;
     else {
       const parent = stack[depth - 1];
@@ -207,7 +244,7 @@ export function parseIndented(text: string, indent: ParseIndent = 'auto'): Direc
     stack.length = depth + 1;
     previousDepth = depth;
   }
-  return { version: 1, root: root! };
+  return validateDocument({ version: 1, root: root! });
 }
 
 type ExplicitTextFormat = Exclude<TextFormat, 'auto'>;
@@ -323,9 +360,7 @@ function buildTextDocument(records: ParsedFolder[]): DirectoryDocument {
     if (depth > previousDepth + 1) fail('INDENT_JUMP', 'Do not skip a folder level. Increase indentation by one level at a time.', line);
     if (depth > LIMITS.depth) fail('TOO_DEEP', `A tree cannot exceed ${LIMITS.depth} levels below its root.`, line);
     if (index >= LIMITS.nodes) fail('TOO_MANY_FOLDERS', `A project can contain at most ${LIMITS.nodes} folders.`, line);
-    let name = record.name;
-    if (name.endsWith('/') && !name.endsWith('//')) name = name.slice(0, -1);
-    const node: FolderNode = { id: newId(), name: validateName(name, line), children: [] };
+    const node: FolderNode = { id: newId(), ...parseFolderLabel(record.name, line), children: [] };
     if (depth === 0) root = node;
     else {
       const parent = stack[depth - 1];
@@ -337,7 +372,7 @@ function buildTextDocument(records: ParsedFolder[]): DirectoryDocument {
     stack.length = depth + 1;
     previousDepth = depth;
   });
-  return { version: 1, root: root! };
+  return validateDocument({ version: 1, root: root! });
 }
 
 function parseTextLines(lines: SourceLine[], format: ExplicitTextFormat, indent: ParseIndent): DirectoryDocument {
@@ -373,26 +408,27 @@ export function parseText(text: string, format: TextFormat = 'auto', indent: Par
   return parseTextLines(lines, format === 'auto' ? inferTextFormat(lines) : format, indent);
 }
 
-/** Nested Markdown lists with whole-name code spans, safe for punctuation and backticks. */
+/** Nested Markdown lists with whole-label code spans, safe for punctuation and backticks. */
 export function formatMarkdown(doc: DirectoryDocument, indent: Indent = 2): string {
   if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
   const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
   return flatten(doc).map(({ node, depth }) => {
-    const longestRun = Math.max(0, ...(node.name.match(/`+/g) ?? []).map(run => run.length));
+    const label = formatFolderLabel(node);
+    const longestRun = Math.max(0, ...(label.match(/`+/g) ?? []).map(run => run.length));
     const delimiter = '`'.repeat(longestRun + 1);
-    const padding = node.name.startsWith('`') || node.name.endsWith('`') ? ' ' : '';
-    return `${unit.repeat(depth)}- ${delimiter}${padding}${node.name}${padding}${delimiter}`;
+    const padding = label.startsWith('`') || label.endsWith('`') ? ' ' : '';
+    return `${unit.repeat(depth)}- ${delimiter}${padding}${label}${padding}${delimiter}`;
   }).join('\n');
 }
 
 /** Four-column ASCII tree using |--, `--, and | continuation guides. */
 export function formatASCII(doc: DirectoryDocument): string {
   const { root } = validateDocument(doc);
-  const lines = [root.name];
+  const lines = [formatFolderLabel(root)];
   function visit(node: FolderNode, prefix: string): void {
     node.children.forEach((child, index) => {
       const last = index === node.children.length - 1;
-      lines.push(`${prefix}${last ? '`-- ' : '|-- '}${child.name}`);
+      lines.push(`${prefix}${last ? '`-- ' : '|-- '}${formatFolderLabel(child)}`);
       visit(child, `${prefix}${last ? '    ' : '|   '}`);
     });
   }
@@ -425,16 +461,16 @@ export function flatten(doc: DirectoryDocument): FlatFolder[] {
 export function formatIndented(doc: DirectoryDocument, indent: Indent = 2): string {
   if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
   const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
-  return flatten(doc).map(({ node, depth }) => `${unit.repeat(depth)}${node.name}`).join('\n');
+  return flatten(doc).map(({ node, depth }) => `${unit.repeat(depth)}${formatFolderLabel(node)}`).join('\n');
 }
 
 export function formatTree(doc: DirectoryDocument): string {
   const { root } = validateDocument(doc);
-  const lines = [root.name];
+  const lines = [formatFolderLabel(root)];
   function visit(node: FolderNode, prefix: string): void {
     node.children.forEach((child, index) => {
       const last = index === node.children.length - 1;
-      lines.push(`${prefix}${last ? '└── ' : '├── '}${child.name}`);
+      lines.push(`${prefix}${last ? '└── ' : '├── '}${formatFolderLabel(child)}`);
       visit(child, `${prefix}${last ? '    ' : '│   '}`);
     });
   }
@@ -465,6 +501,16 @@ export function addFolder(doc: DirectoryDocument, parentId: string, name: string
 export function renameFolder(doc: DirectoryDocument, id: string, name: string): DirectoryDocument {
   const clean = validateDocument(doc);
   requireNode(clean, id).node.name = validateName(name);
+  return validateDocument(clean);
+}
+
+/** Change only one folder's comment; an empty string removes it. */
+export function setFolderComment(doc: DirectoryDocument, id: string, comment: string): DirectoryDocument {
+  const clean = validateDocument(doc);
+  const node = requireNode(clean, id).node;
+  const value = validateComment(comment);
+  if (value === '') delete node.comment;
+  else node.comment = value;
   return validateDocument(clean);
 }
 

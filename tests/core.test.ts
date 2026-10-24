@@ -104,7 +104,7 @@ describe('portable safe names and document boundaries', () => {
     expect(validateName('📁'.repeat(63))).toHaveLength(126);
   });
   it('validates strict version and shape, IDs, cycles and duplicate IDs', () => {
-    expectCode(() => validateDocument({ version: 2, root: {} }), 'UNSUPPORTED_VERSION');
+    expectCode(() => validateDocument({ version: 3, root: {} }), 'UNSUPPORTED_VERSION');
     expectCode(() => validateDocument([]), 'INVALID_DOCUMENT');
     expectCode(() => validateDocument({ version: 1, root: null }), 'INVALID_NODE');
     expectCode(() => validateDocument({ version: 1, root: { id: 'x/y', name: 'root', children: [] } }), 'INVALID_ID');

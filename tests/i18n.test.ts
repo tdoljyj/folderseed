@@ -53,6 +53,17 @@ describe('complete runtime language catalogs', () => {
     expect(t('Moved into the next sibling.')).not.toBe(t('Moved into the previous sibling.'));
     expect(t('This folder has no sibling to move into.')).not.toBe(t('This folder has no preceding sibling to move into.'));
   });
+  it.each(locales)('%s translates comment controls and validation without changing inserted names', locale => {
+    const t = createTranslator(locale);
+    const name = 'User folder {count} $&';
+    expect(t('Edit comment for {name}', { name })).toContain(name);
+    for (const key of ['Add comment', 'Folder comment', 'Save comment', 'Cancel comment', 'Comment saved.', 'Editing folder comment…', 'Comments stay separate from folder names.', 'Use // after a folder name for a single-line comment.', 'Folder comments must be text.', 'Folder comments cannot exceed 500 characters.', 'Folder comments must be one line without control characters or invalid Unicode.', 'Folder comments together cannot exceed 256 KB.', 'Unsupported project version. Please use a version: 1 or version: 2 document.']) {
+      expect(Object.hasOwn(catalogs[locale], key), key).toBe(true);
+      expect(createErrorTranslator(locale)(key), key).toBe(catalogs[locale][key]);
+      if (locale !== 'en') expect(t(key), key).not.toBe(key);
+    }
+    expect(t('Use // after a folder name for a single-line comment.')).toContain('//');
+  });
   it('falls back to unknown English source phrases without exposing object prototype values', () => {
     const t = createTranslator('fr');
     expect(t('Future feature {count}', { count: 2 })).toBe('Future feature 2');

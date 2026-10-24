@@ -40,7 +40,7 @@ Keep the core independent of the DOM and UI framework. Do not add a backend, ana
 4. Screenshots for visible UI changes, with narrow and wide layouts checked.
 5. Honest verification notes: distinguish tests that passed from checks that were not run.
 
-Preserve 2-space, 4-space, and tab indentation during parsing. Cover plain outlines, Markdown lists, ASCII trees, Unicode trees, and fenced text with round-trip tests. Automatic detection must not silently flatten an invalid tree; explicit format selection must remain available for ambiguous input. Treat imported JSON, text, and folder names as untrusted input. Never bypass the document validator to make an export succeed.
+Preserve 2-space, 4-space, and tab indentation during parsing. Cover plain outlines, Markdown lists, ASCII trees, Unicode trees, and fenced text with round-trip tests. Automatic detection must not silently flatten an invalid tree; explicit format selection must remain available for ambiguous input. Treat imported JSON, text, folder names, and comments as untrusted input. Never bypass the document validator to make an export succeed.
 
 Text-editor changes must preserve these guarantees:
 
@@ -56,7 +56,11 @@ Test rapid edits, immediate export, independent format-label/menu-arrow clicks, 
 
 Inline naming tests must cover Enter, valid blur, Escape and Cancel editing, invalid/duplicate names with focus restoration, IME composition, unchanged descendants, one-step undo/redo, and autosave. An uncommitted add placeholder must not enter the document, preview, callbacks, or undo history.
 
-Language changes must cover browser preference order and regional aliases, live Automatic updates, explicit preference persistence, custom/disabled storage, invalid-draft preservation, all twelve choices, scoped Arabic RTL, and narrow-screen screenshots. Never translate user folder names or exported data. Keep original English message keys and catalog coverage aligned, and preserve native option names so users can recover from an accidental language choice.
+Folder-comment changes must keep metadata separate from names and paths. Cover the exact ` // ` suffix in all text formats, Markdown code-span escaping, additional literal separators, comment removal, 500-character and combined 256-KiB limits, rejected multiline/control-character input, and JSON version-1/version-2 reading. The internal model remains version 1; serialize annotated interchange documents with `serializeJSON` so their wire version is 2. ZIP entries must remain folder-only and unchanged by comments; image text must be escaped rather than treated as markup.
+
+Browser comment checks should cover Enter, valid blur, Escape/Cancel, IME, native text undo, document Undo/Redo, autosave/reload, and exports/imports. Editing a comment must not rename or move its folder. Keep row pitch, glyph/name anchors, child counts, panel dimensions, and export position stable while comments are empty, long, selected, or being edited. Narrow-screen and Arabic RTL screenshots should show readable ellipses and a usable full-width editing field. All 29 folders across the built-in templates need comments; translate those only at template creation, never during later interface-language changes. Unfinished comment input must not leak into saved documents or export data.
+
+Language changes must cover browser preference order and regional aliases, live Automatic updates, explicit preference persistence, custom/disabled storage, invalid-draft preservation, all twelve choices, scoped Arabic RTL, and narrow-screen screenshots. Never translate existing folder names, user comments, or exported data. Only newly created template comments use the current interface language. Keep original English message keys and catalog coverage aligned, and preserve native option names so users can recover from an accidental language choice.
 
 Keep public documentation, comments, issue templates, and commit messages in English. UI translations belong in the locale catalogs; Unicode folder names and internationalization fixtures are welcome.
 

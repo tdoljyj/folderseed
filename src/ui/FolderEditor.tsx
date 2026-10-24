@@ -1,11 +1,11 @@
-import { Fragment, useId, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type CSSProperties, type MouseEvent } from 'react';
-import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
+import { Fragment, useId, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type CSSProperties, type MouseEvent, type ChangeEvent, type CompositionEvent } from 'react';
+import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, setFolderComment, serializeJSON, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
 import { FormatSwitch } from './FormatSwitch';
 import { AppMenu, SettingsDialog } from './Settings';
 import { useTheme } from './theme';
-import { I18nProvider, useI18n, useLanguage } from './i18n';
+import { I18nProvider, useI18n, useLanguage, readBrowserLocale, readLanguagePreference, createTranslator } from './i18n';
 import { bottomAncestorTargets, dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from './dragDrop';
 import { historyReducer, historyShortcut } from './history';
 import { addSiblingFolder, indentFolder, outdentFolder } from './folderActions';
@@ -24,7 +24,7 @@ export interface FolderEditorProps {
 }
 type Modal = { kind: 'move'; id: string } | { kind: 'template'; index: number };
 type DeleteUndo = { before: DirectoryDocument; after: DirectoryDocument; folderId: string };
-type InlineEdit = { kind: 'rename' | 'add'; id: string; afterId?: string; anchorId: string; value: string; error: string };
+type InlineEdit = { kind: 'rename' | 'add' | 'comment'; id: string; afterId?: string; anchorId: string; value: string; error: string };
 const formats: { id: ExportFormat; title: string; description: string; icon: string }[] = [
   { id: 'zip', title: 'Folder ZIP', description: 'Real, empty folders', icon: 'folder' },
   { id: 'txt', title: 'Plain text', description: 'Easy to copy & edit', icon: 'code' },
@@ -46,9 +46,10 @@ interface InitialState {
   indent: ParseIndent;
   warning: string;
   recoveryRaw: string | null;
+  freshTemplate: boolean;
 }
 function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false): InitialState {
-  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'plain' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null };
+  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'plain' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null, freshTemplate: false };
   if (initialDocument) return { ...defaults, textFormat: 'plain', document: validateDocument(initialDocument) };
   if (storageKey && typeof window !== 'undefined') {
     let raw: string | null = null;
@@ -73,10 +74,10 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
         };
       }
     } catch {
-      return { ...defaults, document: makeTemplate(0), warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw };
+      return { ...defaults, document: makeTemplate(0), freshTemplate: true, warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw };
     }
   }
-  return { ...defaults, document: makeTemplate(0) };
+  return { ...defaults, document: makeTemplate(0), freshTemplate: true };
 }
 
 /** Ignore regenerated text-import IDs when deciding whether a typing burst changed the tree. */
@@ -89,12 +90,13 @@ export function FolderEditor(props: FolderEditorProps) {
   return <I18nProvider value={language}><FolderEditorContent {...props}/></I18nProvider>;
 }
 
-function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderseed:draft:v1', themeStorageKey = 'folderseed:theme:v1' }: FolderEditorProps) {
+function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderseed:draft:v1', themeStorageKey = 'folderseed:theme:v1', languageStorageKey = 'folderseed:language:v1' }: FolderEditorProps) {
   const { t, translateError, locale, direction } = useI18n();
   const theme = useTheme(themeStorageKey);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsTrigger = useRef<HTMLButtonElement | null>(null);
   const [initial] = useState(() => loadInitial(initialDocument, storageKey));
+  const freshTemplateInitialized = useRef(!initial.freshTemplate);
   const [history, dispatch] = useReducer(historyReducer, { past: [], present: initial.document, future: [] });
   const doc = history.present;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -142,7 +144,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const [actionBounds, setActionBounds] = useState<{ left: number; top: number; width: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const inlineInput = useRef<HTMLInputElement>(null);
+  const inlineInput = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const [commentBounds, setCommentBounds] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null);
   const rows = useMemo(() => flatten(doc), [doc]);
   const lastVisibleFolder = useMemo(() => {
     let node = doc.root;
@@ -189,6 +192,28 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       observer?.disconnect();
     };
   }, [actionOwnerId, doc, collapsed, mode]);
+  useLayoutEffect(() => {
+    const tree = treeRef.current;
+    const area = visualAreaRef.current;
+    const anchor = tree && Array.from(tree.querySelectorAll<HTMLButtonElement>('.fs-folder-select'))
+      .find(button => button.dataset.folderId === inlineEdit?.id)?.closest<HTMLElement>('.fs-tree-row');
+    if (inlineEdit?.kind !== 'comment' || !tree || !area || !anchor) { setCommentBounds(null); return; }
+    const update = () => {
+      const row = anchor.getBoundingClientRect();
+      const viewport = tree.getBoundingClientRect();
+      const origin = area.getBoundingClientRect();
+      const above = row.bottom + 46 > viewport.top + tree.clientHeight;
+      const anchoredTop = above ? row.top - origin.top - 44 : row.bottom - origin.top + 4;
+      const top = Math.max(viewport.top - origin.top + 4, Math.min(anchoredTop, viewport.top + tree.clientHeight - origin.top - 44));
+      setCommentBounds({ top, left: viewport.left - origin.left + 8, width: Math.max(128, tree.clientWidth - 16), above });
+    };
+    update();
+    tree.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(tree); observer?.observe(area);
+    return () => { tree.removeEventListener('scroll', update); window.removeEventListener('resize', update); observer?.disconnect(); };
+  }, [inlineEdit?.kind, inlineEdit?.id, doc, collapsed, mode]);
   const levelActions = useMemo(() => {
     const result = { outdent: '', indent: '' };
     if (!selected) return { outdent: 'Select a folder first.', indent: 'Select a folder first.' };
@@ -209,7 +234,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const previewRows = useMemo(() => flatten(previewDoc), [previewDoc]);
   const depth = Math.max(...previewRows.map(row => row.depth)) + 1;
   const activeExportCard = format === 'ascii' || format === 'unicode' ? 'txt' : format === 'md-tree' ? 'md' : format;
-  const statusLabel = saveState.startsWith('Draft not') || saveState.startsWith('Autosave paused') ? saveState : inlineEdit ? 'Editing folder name…' : composing ? 'Composing text…' : textDirty && !parsed.error ? 'Saving changes…' : invalidDraft ? `Draft invalid · ${saveState === 'Saving draft…' ? 'saving draft…' : storageKey ? 'saved on this device' : 'kept in this session'}` : saveState;
+  const statusLabel = saveState.startsWith('Draft not') || saveState.startsWith('Autosave paused') ? saveState : inlineEdit ? inlineEdit.kind === 'comment' ? 'Editing folder comment…' : 'Editing folder name…' : composing ? 'Composing text…' : textDirty && !parsed.error ? 'Saving changes…' : invalidDraft ? `Draft invalid · ${saveState === 'Saving draft…' ? 'saving draft…' : storageKey ? 'saved on this device' : 'kept in this session'}` : saveState;
 
   useEffect(() => {
     if (!textDirty || parsed.error || composing) return;
@@ -227,6 +252,19 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       historyFocusId.current = null;
     }
   }, [doc, selectedId, mode, collapsed]);
+  useEffect(() => {
+    if (freshTemplateInitialized.current) return;
+    freshTemplateInitialized.current = true;
+    if (contentRevision.current !== 0 || doc !== initial.document) return;
+    // Defer browser preference reads until mount to keep SSR and hydration identical.
+    // Saved/custom documents and subsequent language changes never rewrite comments.
+    const { preference } = readLanguagePreference(languageStorageKey);
+    const initialLocale = preference === 'auto' ? readBrowserLocale() : preference;
+    const next = makeTemplate(0, createTranslator(initialLocale));
+    if (sameStructure(doc, next)) return;
+    dispatch({ type: 'initialize', document: next });
+    setTextDraft(formatIndented(next, OUTPUT_INDENT));
+  }, [initial, doc, languageStorageKey]);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onChangeRef.current?.(doc); }, [doc]);
   useEffect(() => {
@@ -243,7 +281,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
           recoveryBackedUp.current = true;
         } catch { setSaveState('Autosave paused — unreadable draft preserved'); return; }
       }
-      localStorage.setItem(storageKey, JSON.stringify({ document: doc, draft: textDraft, pending: textDirty, mode, textFormat, indent }));
+      localStorage.setItem(storageKey, JSON.stringify({ document: JSON.parse(serializeJSON(doc)), draft: textDraft, pending: textDirty, mode, textFormat, indent }));
       draftPersisted.current = true;
       setSaveState('Saved on this device');
     } catch { setSaveState('Draft not saved — copy your text before leaving'); }
@@ -253,7 +291,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     dialog.current?.showModal();
   }, [modal]);
   useEffect(() => {
-    const inlineDirty = inlineEdit && (inlineEdit.kind === 'add' ? !!inlineEdit.value : inlineEdit.value !== rows.find(row => row.node.id === inlineEdit.id)?.node.name);
+    const inlineDirty = inlineEdit && (inlineEdit.kind === 'add' ? !!inlineEdit.value : inlineEdit.value !== (inlineEdit.kind === 'comment' ? rows.find(row => row.node.id === inlineEdit.id)?.node.comment ?? '' : rows.find(row => row.node.id === inlineEdit.id)?.node.name));
     if (!textDirty && !inlineDirty) return;
     const warn = (event: BeforeUnloadEvent) => { if (inlineDirty || !draftPersisted.current) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
@@ -396,11 +434,13 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (target instanceof Element && target.matches('.fs-editor, .fs-visual-area, .fs-tree, .fs-tree-tail, .fs-tree-item, .fs-panel-heading, .fs-editor-toolbar, .fs-tree-help, .fs-selection-summary')) clearSelection(true);
   }
   function updateInline(next: InlineEdit | null) { inlineRef.current = next; setInlineEdit(next); }
-  function beginInline(kind: 'rename' | 'add', id: string, afterId?: string) {
-    if (!flushText()) return;
+  function beginInline(kind: InlineEdit['kind'], id: string, afterId?: string) {
+    const latest = flushText();
+    if (!latest) return;
     clearDeleteUndo();
     const anchorId = afterId ?? id;
-    const value = kind === 'rename' ? rows.find(row => row.node.id === id)!.node.name : '';
+    const node = flatten(latest).find(row => row.node.id === id)!.node;
+    const value = kind === 'rename' ? node.name : kind === 'comment' ? node.comment ?? '' : '';
     contentRevision.current++;
     updateInline({ kind, id, afterId, anchorId, value, error: '' });
     setSelectedId(anchorId);
@@ -420,11 +460,11 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (inlineComposing.current) return null;
     try {
       const next = edit.kind === 'rename' ? renameFolder(doc, edit.id, edit.value)
-        : edit.afterId ? addSiblingFolder(doc, edit.afterId, edit.value) : addFolder(doc, edit.id, edit.value);
-      const selected = edit.kind === 'rename' ? edit.id
+        : edit.kind === 'comment' ? setFolderComment(doc, edit.id, edit.value) : edit.afterId ? addSiblingFolder(doc, edit.afterId, edit.value) : addFolder(doc, edit.id, edit.value);
+      const selected = edit.kind !== 'add' ? edit.id
         : flatten(next).find(row => row.parentId === edit.id && row.node.name === edit.value.normalize('NFC'))!.node.id;
       updateInline(null);
-      if (!sameStructure(doc, next)) commit(next, edit.kind === 'rename' ? 'Folder renamed.' : 'Folder added.');
+      if (!sameStructure(doc, next)) commit(next, edit.kind === 'comment' ? 'Comment saved.' : edit.kind === 'rename' ? 'Folder renamed.' : 'Folder added.');
       setSelectedId(selected); if (restoreFocus) focusFolder(selected);
       return next;
     } catch (error) {
@@ -435,21 +475,41 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   }
   function renderInlineName() {
     const edit = inlineEdit!;
+    const isComment = edit.kind === 'comment';
+    const fieldProps = {
+      ref: (element: HTMLInputElement | HTMLTextAreaElement | null) => { inlineInput.current = element; },
+      className: `fs-inline-name ${isComment ? 'fs-inline-comment' : ''}`,
+      'aria-label': t(isComment ? 'Folder comment' : 'Folder name'),
+      title: isComment ? t('Edit comment for {name}', { name: rows.find(row => row.node.id === edit.id)?.node.name ?? '' }) : undefined,
+      'aria-invalid': !!edit.error,
+      'aria-describedby': edit.error ? inlineErrorId : undefined,
+      value: edit.value,
+      placeholder: t(isComment ? 'Add comment' : 'New folder'),
+      maxLength: isComment ? LIMITS.commentLength * 2 : 200,
+      autoComplete: 'off', spellCheck: false, dir: 'auto',
+      onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const current = inlineRef.current;
+        if (current) { contentRevision.current++; updateInline({ ...current, value: event.target.value, error: '' }); }
+      },
+      onCompositionStart: () => { inlineComposing.current = true; },
+      onCompositionEnd: (event: CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        inlineComposing.current = false;
+        const current = inlineRef.current;
+        if (current) updateInline({ ...current, value: event.currentTarget.value });
+      },
+      onKeyDown: (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        if (event.nativeEvent.isComposing || inlineComposing.current || event.nativeEvent.keyCode === 229) return;
+        if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); finishInline(); }
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelInline(); }
+      },
+    };
     return <div className="fs-inline-editor" onClick={event => event.stopPropagation()} onBlur={event => {
       if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
       if (inlineRef.current) finishInline(false);
     }}>
-      <input ref={inlineInput} className="fs-inline-name" aria-label={t('Folder name')} aria-invalid={!!edit.error} aria-describedby={edit.error ? inlineErrorId : undefined}
-        value={edit.value} placeholder={t('New folder')} maxLength={200} autoComplete="off" spellCheck={false} dir="auto"
-        onChange={event => { contentRevision.current++; updateInline({ ...edit, value: event.target.value, error: '' }); }}
-        onCompositionStart={() => { inlineComposing.current = true; }} onCompositionEnd={() => { inlineComposing.current = false; }}
-        onKeyDown={event => {
-          if (event.nativeEvent.isComposing || inlineComposing.current || event.nativeEvent.keyCode === 229) return;
-          if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); finishInline(); }
-          if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelInline(); }
-        }}/>
-      <button type="button" className="fs-inline-save" aria-label={t('Save name')} title={t('Save name')} onMouseDown={event => event.preventDefault()} onClick={() => finishInline()}><Icon name="check" size={16}/></button>
-      <button type="button" className="fs-inline-cancel" aria-label={t('Cancel editing')} title={t('Cancel editing')} onMouseDown={event => event.preventDefault()} onClick={cancelInline}><Icon name="close" size={16}/></button>
+      {isComment ? <textarea {...fieldProps} rows={1}/> : <input {...fieldProps}/>}
+      <button type="button" className="fs-inline-save" aria-label={t(isComment ? 'Save comment' : 'Save name')} title={t(isComment ? 'Save comment' : 'Save name')} onMouseDown={event => event.preventDefault()} onClick={() => finishInline()}><Icon name="check" size={16}/></button>
+      <button type="button" className="fs-inline-cancel" aria-label={t(isComment ? 'Cancel comment' : 'Cancel editing')} title={t(isComment ? 'Cancel comment' : 'Cancel editing')} onMouseDown={event => event.preventDefault()} onClick={cancelInline}><Icon name="close" size={16}/></button>
       {edit.error && <span className="fs-inline-error" id={inlineErrorId} role="alert">{translateError(edit.error)}</span>}
     </div>;
   }
@@ -472,7 +532,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
         const index = destinationBefore === 'end' ? undefined : children.findIndex(child => child.id === destinationBefore);
         commit(moveFolder(doc, modal.id, destination, index), 'Folder moved.'); setCollapsed(new Set());
       } else if (modal.kind === 'template') {
-        commit(makeTemplate(modal.index), 'Template opened. Your previous structure is available with Undo.'); clearSelection(); setCollapsed(new Set()); setMode('visual');
+        commit(makeTemplate(modal.index, t), 'Template opened. Your previous structure is available with Undo.'); clearSelection(); setCollapsed(new Set()); setMode('visual');
       }
       closeModal();
     } catch (error) { setModalError(errorMessage(error)); }
@@ -621,6 +681,10 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
         {editing ? <div className="fs-folder-select"><span className={`fs-folder-icon ${level === 0 ? 'root' : ''}`}><Icon name="folder" size={20}/></span>{renderInlineName()}</div> : <button type="button" className="fs-folder-select" data-folder-id={node.id} aria-pressed={isSelected} onClick={() => selectFolder(node.id)} title={node.name}><span className={`fs-folder-icon ${level === 0 ? 'root' : ''}`}><Icon name="folder" size={20}/></span><span className="fs-folder-name">{node.name}</span>{level === 0 && <span className="fs-root-label">{t("ROOT")}</span>}</button>}
       </div>
       </div>
+      <button type="button" className={`fs-folder-comment ${node.comment ? '' : 'is-empty'}`} data-comment-for={node.id} dir="auto"
+        aria-label={t('Edit comment for {name}', { name: node.name })} title={node.comment || t('Add comment')} disabled={!!draggingId || !!inlineEdit && inlineEdit.kind !== 'comment'}
+        onClick={() => beginInline('comment', node.id)} onDragStart={event => event.preventDefault()}
+        onDragOver={event => dragOver(event, node.id, level === 0)} onDrop={event => drop(event, node.id, level === 0)}>{node.comment || t('Add comment')}</button>
       <span className="fs-row-count">{node.children.length || ''}</span>
       {!isCollapsed && (node.children.length > 0 || addingChild) && <ul>{node.children.map(child => renderFolder(child, level + 1))}{addingChild && renderPlaceholder(level + 1)}</ul>}
       {target && !target.invalid && target.placement !== 'inside' && <span className={`fs-drop-line is-${target.placement}`} style={{ left: 12 + level * 22 }} aria-hidden="true"/>}
@@ -691,6 +755,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
               </li>}
             </ul>
             {renderFloatingActions()}
+            {inlineEdit?.kind === 'comment' && commentBounds && <div className={`fs-comment-editor ${commentBounds.above ? 'is-above' : ''}`} style={{ top: commentBounds.top, left: commentBounds.left, width: commentBounds.width }} title={t('Comments stay separate from folder names.')}>{renderInlineName()}</div>}
             {rows.length === 1 && <div className="fs-empty-hint"><Icon name="spark" size={23}/><p>{t("Every good structure starts somewhere.")}<br/>{t("Select the root, then add a child folder.")}</p></div>}
             <div className={`fs-selection-summary ${selected ? '' : 'is-empty'}`}>{selected && <><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><button type="button" className="fs-advanced-move" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={14}/>{t("Move")}</button></>}</div>
           </div> : <div id="text-editor" role="region" aria-label={t("Text editor")} className="fs-text-area">
@@ -708,13 +773,13 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
                   requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; });
                 }
               }}/>
-            <p className="fs-text-guide">{t("Changes apply automatically after a short pause. Plain text, Markdown lists, ASCII trees, and Unicode trees are supported. Choose Plain text to keep leading punctuation literal.")}</p>
+            <p className="fs-text-guide">{t("Changes apply automatically after a short pause. Plain text, Markdown lists, ASCII trees, and Unicode trees are supported. Choose Plain text to keep leading punctuation literal.")} {t("Use // after a folder name for a single-line comment.")}</p>
             {parsed.error ? <div className="fs-inline-error" role="alert">{translateError(parsed.error)}<span className="fs-error-detail">{t("Your draft is kept. The preview still shows the last valid structure.")}</span></div> : <div className="fs-text-valid"><Icon name={composing || textDirty ? 'edit' : 'check'} size={14}/>{composing ? t("Composing… your last valid structure is unchanged") : textDirty ? t("Saving changes…") : t("Automatically applied · no extra click needed")}</div>}
             {textDirty && <div className="fs-text-actions"><button type="button" className="fs-button" disabled={composing} onClick={revertText}>{t("Revert text")}</button></div>}
           </div>}
 
         </section>
-        <section className="fs-panel fs-preview" aria-label={t("Live preview")}><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>{t("See it take shape")}</h2></div><span className={`fs-live-badge ${blockedDraft && mode === 'text' ? 'is-paused' : ''}`}><span/>{blockedDraft && mode === 'text' ? t('LAST VALID') : t('LIVE PREVIEW')}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>{t("Folders")}</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>{t("Text tree")}</button></div><button type="button" className="fs-copy" disabled={blockedDraft} onClick={() => void copyPreview()}><Icon name="copy" size={15}/>{t("Copy tree")}</button></div><div className="fs-preview-canvas">{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc)}</pre> : <div className="fs-preview-tree">{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ marginLeft: depth * 24 }}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">{t("YOUR ROOT FOLDER")}</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span>{t(previewRows.length === 1 ? "{count} folder" : "{count} folders", { count: previewRows.length })}</span><span>{t(depth === 1 ? "{count} level" : "{count} levels", { count: depth })}</span><span><Icon name="check" size={14}/>{t("No files, just possibilities")}</span></div></section>
+        <section className="fs-panel fs-preview" aria-label={t("Live preview")}><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>{t("See it take shape")}</h2></div><span className={`fs-live-badge ${blockedDraft && mode === 'text' ? 'is-paused' : ''}`}><span/>{blockedDraft && mode === 'text' ? t('LAST VALID') : t('LIVE PREVIEW')}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>{t("Folders")}</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>{t("Text tree")}</button></div><button type="button" className="fs-copy" disabled={blockedDraft} onClick={() => void copyPreview()}><Icon name="copy" size={15}/>{t("Copy tree")}</button></div><div className="fs-preview-canvas">{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc)}</pre> : <div className="fs-preview-tree">{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ marginLeft: depth * 24 }}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">{t("YOUR ROOT FOLDER")}</span>}{node.comment && <span className="fs-preview-comment" title={node.comment} dir="auto">{node.comment}</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span>{t(previewRows.length === 1 ? "{count} folder" : "{count} folders", { count: previewRows.length })}</span><span>{t(depth === 1 ? "{count} level" : "{count} levels", { count: depth })}</span><span><Icon name="check" size={14}/>{t("No files, just possibilities")}</span></div></section>
       </div>
       <section className="fs-panel fs-export" aria-label={t("Export structure")}><div className="fs-export-heading"><div><span className="fs-step">03</span><h2>{t("Take it with you")}</h2></div><p>{t("A real folder structure, or a picture of the plan. Your choice.")}</p></div><div className="fs-export-options" role="radiogroup" aria-label={t("Export format")}>{formats.map(item => <button key={item.id} type="button" role="radio" aria-checked={activeExportCard === item.id} onClick={() => setFormat(item.id)} className={activeExportCard === item.id ? 'is-active' : ''}><span className="fs-format-icon"><Icon name={item.icon} size={20}/></span><strong>{t(item.title)}</strong><small>{t(item.description)}</small><span className="fs-radio-dot"/></button>)}</div>
         {activeExportCard === 'txt' && <div className="fs-export-subtype"><label htmlFor="text-export-style">{t("Text export style")}</label><select id="text-export-style" value={format} onChange={event => setFormat(event.target.value as ExportFormat)}><option value="txt">{t("Indented text")}</option><option value="ascii">{t("ASCII tree")}</option><option value="unicode">{t("Unicode tree")}</option></select></div>}

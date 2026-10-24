@@ -3033,5 +3033,81 @@
 .fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled) { color: #e3efff; background: #33475e; }
 .fs-app[data-theme='dark'] .fs-context-actions .fs-context-delete:hover:not(:disabled) { color: #ffc3c3; background: #573439; }
 
-/* Honor the responsive canvas height even when the mobile panel sizes itself. */
+/* Comments occupy a separate, stable column before the trailing child count. */
+.fs-app :is(.fs-tree-item, .fs-inline-placeholder) {
+  --fs-comment-start: max(55cqw, calc(192px + var(--fs-action-inset, 0px)));
+  min-width: calc(264px + var(--fs-action-inset, 0px));
+}
+.fs-app .fs-folder-frame:not(.has-actions) .fs-folder-select:not(:has(> .fs-inline-editor)) {
+  max-width: calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 110px);
+}
+.fs-app .fs-folder-icon { flex: 0 0 20px; }
+.fs-app .fs-folder-frame.has-actions {
+  max-width: max(var(--fs-action-min-width), calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 8px));
+}
+.fs-app .fs-folder-comment {
+  position: absolute;
+  top: 1px;
+  left: var(--fs-comment-start);
+  right: 36px;
+  height: 32px;
+  min-width: 24px;
+  padding: 5px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: start;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #737b87;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 400;
+}
+.fs-app .fs-folder-comment.is-empty { color: #8b929d; }
+.fs-app .fs-folder-comment:hover:not(:disabled),
+.fs-app .fs-folder-comment:focus-visible { color: #365c8d; background: #eef4fc; }
+.fs-app .fs-folder-comment:disabled { opacity: .55; cursor: default; }
+.fs-app .fs-comment-editor {
+  position: absolute;
+  z-index: 14;
+  height: 40px;
+  padding: 5px;
+  border: 1px solid #bdcfe6;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 4px 14px #172c4d24;
+  direction: ltr;
+}
+.fs-app .fs-comment-editor .fs-inline-editor { width: 100%; min-width: 0; max-width: none; height: 28px; }
+.fs-app .fs-comment-editor .fs-inline-comment {
+  min-width: 0;
+  height: 28px;
+  resize: none;
+  white-space: pre;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.fs-app .fs-comment-editor.is-above .fs-inline-error { top: auto; bottom: calc(100% + 10px); }
+.fs-app .fs-preview-comment {
+  flex: 0 1 220px;
+  min-width: 0;
+  max-width: 220px;
+  margin-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #737b87;
+  font-size: 11px;
+  font-weight: 400;
+}
+.fs-app[data-theme='dark'] .fs-folder-comment,
+.fs-app[data-theme='dark'] .fs-preview-comment { color: #a2adbc; }
+.fs-app[data-theme='dark'] .fs-folder-comment.is-empty { color: #8793a3; }
+.fs-app[data-theme='dark'] .fs-folder-comment:hover:not(:disabled),
+.fs-app[data-theme='dark'] .fs-folder-comment:focus-visible { color: #d6e6fc; background: #29394d; }
+.fs-app[data-theme='dark'] .fs-comment-editor { border-color: #526b8c; background: #222d3c; box-shadow: 0 4px 14px #0005; }
+@container (max-width: 400px) {
+  .fs-app .fs-tree-row .fs-root-label { display: none; }
+}
 .fs-app .fs-preview-canvas { flex: 0 0 auto; }

@@ -221,3 +221,105 @@ describe('directory exports', () => {
     await expect(createExport(fixture(), 'png')).rejects.toThrow('requires a browser');
   });
 });
+
+describe('folder comment exports', () => {
+  function commentedFixture(): DirectoryDocument {
+    const document = fixture();
+    document.root.comment = 'Root explanation // preserve this delimiter';
+    document.root.children[0].comment = 'Photos <b>stay literal</b> & "quoted"';
+    document.root.children[0].children[0].comment = 'Use ```` backticks and `inline` text';
+    document.root.children[1].comment = '\u7a7a\u6587\u4ef6\u5939 // no files';
+    return document;
+  }
+  const content = (document: DirectoryDocument) => flatten(document).map(({ node, path }) => ({ path, comment: node.comment }));
+
+  it('ZIP ignores comments and still contains only the original empty folder paths', async () => {
+    const plain = fixture();
+    const commented = commentedFixture();
+    const output = await createExport(commented, 'zip');
+    const entries = unzipSync(new Uint8Array(await output.blob.arrayBuffer()));
+    expect(output.filename).toBe('My project.zip');
+    expect(Object.keys(entries)).toEqual(paths(plain).map(path => `${path}/`));
+    expect(Object.values(entries).every(bytes => bytes.byteLength === 0)).toBe(true);
+    expect(Object.keys(entries).some(path => path.includes(' // ') || path.includes('metadata'))).toBe(false);
+  });
+
+  it.each([
+    { format: 'txt', syntax: 'plain' },
+    { format: 'md', syntax: 'markdown' },
+    { format: 'md-tree', syntax: 'markdown' },
+    { format: 'ascii', syntax: 'ascii' },
+    { format: 'unicode', syntax: 'unicode' },
+  ] as const)('$format roundtrips comments, literal HTML, delimiter text and backticks', async ({ format, syntax }) => {
+    const document = commentedFixture();
+    const text = await (await createExport(document, format)).blob.text();
+    expect(content(parseText(text, syntax))).toEqual(content(document));
+    expect(content(parseText(text, 'auto'))).toEqual(content(document));
+  });
+
+  it('Markdown tree fences account for backtick runs inside comments', async () => {
+    const output = await createExport(commentedFixture(), 'md-tree');
+    const text = await output.blob.text();
+    expect(text.startsWith('`````text\n')).toBe(true);
+    expect(content(parseText(text, 'markdown'))).toEqual(content(commentedFixture()));
+  });
+
+  it('commented JSON uses wire version 2 while retaining the internal model and IDs', async () => {
+    const document = commentedFixture();
+    const output = await createExport(document, 'json');
+    const text = await output.blob.text();
+    expect(JSON.parse(text).version).toBe(2);
+    expect(parseJSON(text)).toEqual(document);
+    expect(parseJSON(text).version).toBe(1);
+  });
+
+  it('comment-free JSON remains compatible with version 1', async () => {
+    const document = fixture();
+    const text = await (await createExport(document, 'json')).blob.text();
+    expect(JSON.parse(text).version).toBe(1);
+    expect(parseJSON(text)).toEqual(document);
+  });
+
+  it('SVG renders comments as muted escaped text, not injected elements or attributes', () => {
+    const document = createDocument('Safe root');
+    document.root.comment = '<script>alert("x")</script> & \'quoted\'';
+    const { svg } = renderSVG(document);
+    expect(svg).toContain('<tspan fill="#626268" font-size="14" font-weight="400"> // &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &apos;quoted&apos;</tspan>');
+    expect(svg).not.toContain('<script');
+    expect(svg).not.toContain('<foreignObject');
+    expect(svg).toContain('<title id="title">Safe root — directory structure</title>');
+    expect(svg).toContain('xml:space="preserve"');
+  });
+
+  it('SVG width includes the comment instead of clipping it to the folder-name width', () => {
+    const document = createDocument('Root');
+    const plain = renderSVG(document);
+    document.root.comment = 'A wide folder explanation '.repeat(8).trim();
+    const commented = renderSVG(document);
+    expect(commented.width).toBeGreaterThan(plain.width);
+    expect(commented.height).toBe(plain.height);
+    expect(commented.svg).toContain(document.root.comment);
+  });
+
+  it('PNG rejects oversized comment widths before allocating browser canvas memory', async () => {
+    const document = createDocument('Root');
+    document.root.comment = 'W'.repeat(500);
+    expect(renderSVG(document).width).toBeGreaterThan(8192);
+    await expect(createExport(document, 'png')).rejects.toThrow('too large for PNG');
+  });
+
+  it.each(['txt', 'md', 'md-tree', 'ascii', 'unicode'] as const)('%s preserves intentional comment whitespace', async (format) => {
+    const document = createDocument('Root');
+    document.root.comment = '  padded // comment  ';
+    const text = await (await createExport(document, format)).blob.text();
+    expect(parseText(text, 'auto').root.comment).toBe(document.root.comment);
+  });
+
+  it.each(['\n', '\r', '\t', '\u0000', '\u001f', '\u007f', '\u202e'])('rejects unsafe comment controls before any export (%j)', async (control) => {
+    const document = createDocument('Root');
+    document.root.comment = `Before${control}After`;
+    for (const format of ['zip', 'txt', 'md', 'md-tree', 'ascii', 'unicode', 'json', 'svg', 'png'] as const) {
+      await expect(createExport(document, format)).rejects.toThrow();
+    }
+  });
+});

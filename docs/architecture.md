@@ -8,6 +8,7 @@ FolderSeed separates the folder model from the editor and from the standalone pa
 interface FolderNode {
   id: string;
   name: string;
+  comment?: string;
   children: FolderNode[];
 }
 
@@ -19,7 +20,9 @@ interface DirectoryDocument {
 
 There is one root. Every node is a folder. An empty `children` array represents an empty folder, not a missing file. Sibling order is meaningful and retained by JSON, text, previews, and exports.
 
-Version `1` is explicit. Unknown versions are rejected rather than guessed or migrated silently. Validation returns a clean copy and discards unrecognized object properties. IDs are unique within a document and are preserved by JSON round-trips; parsing a text outline creates fresh IDs.
+The internal `DirectoryDocument` retains its `version: 1` discriminant. The JSON wire format is version 2 when any node has a comment, otherwise version 1. `parseJSON` and `validateDocument` accept either wire version and return a clean internal document; other versions are rejected. `serializeJSON` chooses the correct wire version, so integrations should not serialize the internal object directly for interchange. Version-1 backups remain readable. Older readers reject version-2 annotated projects instead of silently dropping comments. IDs are unique within a document and are preserved by JSON round-trips; parsing a text outline creates fresh IDs. Unknown properties are discarded.
+
+An optional `comment` is literal single-line metadata, never part of `name` or a path. Empty comments are omitted. Each comment is limited to 500 Unicode characters, with a combined 262,144-byte UTF-8 budget per document. Controls, line separators, invalid Unicode, and directional control characters are rejected. Comments retain their exact text rather than being normalized or translated.
 
 ## Core (`src/core/index.ts`)
 
@@ -29,9 +32,10 @@ The core uses only standard JavaScript APIs. It does not require a UI framework,
 
 - `createDocument(rootName?)`
 - `validateName(value, line?)`
+- `validateComment(value, line?)`
 - `validateDocument(input)`
 - `DirectoryError`: an error with `code` and optional `line`
-- `LIMITS`: shared node, nesting, name, and input limits
+- `LIMITS`: shared node, nesting, name, comment, and input limits
 
 Use `validateDocument` at trust boundaries. Never construct a ZIP path directly from arbitrary imported input.
 
@@ -44,6 +48,7 @@ Use `validateDocument` at trust boundaries. Never construct a ZIP path directly 
 - `formatMarkdown(document, indent = 2)` and `formatASCII(document)`: dedicated format helpers.
 - `parseIndented(text, indent?)` and `formatIndented(document, indent?)`: compatibility helpers for existing integrations; two spaces remain the default output indentation.
 - `formatTree(document)`: produces readable Unicode connectors.
+- `formatFolderLabel(node)`: combines the folder name and optional comment suffix.
 - `parseJSON(text)` and `serializeJSON(document)`: the versioned, ID-preserving project format.
 - `flatten(document)`: returns nodes with `parentId`, `depth`, and slash-separated relative `path`.
 
@@ -57,18 +62,19 @@ Automatic format detection is heuristic. Explicit format selection resolves ambi
 
 Fenced plain, ASCII, and Unicode text remains supported through automatic or Markdown parsing. Explicit ASCII/Unicode formats expect bare trees, not surrounding Markdown fences. Canonical ASCII output uses `|--` for non-final branches, `` `-- `` for the final branch, `|   ` for continuing ancestors, and four spaces otherwise.
 
-Markdown output wraps every folder name in a complete code span. Its delimiter is longer than any backtick run in the name, with padding when required by code-span syntax. Parsing decodes whole-name code spans and standard backslash escapes of punctuation; otherwise labels remain literal folder names, not rendered Markdown or executable markup.
+Every text format uses the first exact ` // ` separator to split a folder label into its name and comment. Additional separators belong to the comment. Slashes are already invalid in names, so this does not reinterpret valid old folder names. Markdown output wraps the complete name/comment label in a code span. Its delimiter is longer than any backtick run in the label, with padding when required by code-span syntax. Parsing decodes whole-label code spans and standard backslash punctuation escapes before splitting the comment; labels are not rendered Markdown or executable markup.
 
 ### Immutable editing
 
 - `addFolder(document, parentId, name)`
 - `renameFolder(document, id, name)`
+- `setFolderComment(document, id, comment)`: an empty string removes the comment.
 - `removeFolder(document, id)`
 - `moveFolder(document, id, parentId, index?)`
 
 Each operation returns a validated copy. Deleting or moving the root is rejected. A move cannot target the node itself or any descendant. `index` is the final insertion position in the destination after removing the source; omit it to append. The UI `moveByDrop` adapter computes before/after positions from the target parent with the source already removed, preventing same-parent off-by-one errors. Row-edge hit zones use the outer 25% of row height; the center nests inside. The root only accepts nesting. Insertion lines use the whole target subtree boundary, while nesting highlights the target row. For after-drops, `dropDepth` maps pointer X to the tree's content-relative indentation band (including horizontal scroll), and `resolveDropTarget` can climb only a chain of last children to the requested depth. It never resolves to the root or crosses an unfinished sibling branch. The visual line and help text use that resolved ancestor, not merely the row under the pointer. Trailing tree whitespace uses the last visible row, respecting collapsed ancestors, with the same resolution rules. During an internal drag, `bottomAncestorTargets` enumerates shallower last-child-chain boundaries and filters them through `moveByDrop`, excluding invalid destinations and no-ops. The UI memoizes these targets and adds full-width, labeled ancestor bands below the short same-level gap. Bands use their explicit target ID rather than pointer X, allowing a straight-down gesture from a collapsed last folder. The band list is capped at 144 px and scrolls for deep trees; it disappears on drop or drag cancellation without reserving idle layout space. Target resolution happens before cycle checks, so outdenting a source above its own old parent is allowed while dropping within its descendants remains invalid. The Move dialog exposes the same final-index placement without dragging. `folderActions.ts` implements immutable sibling creation and indent/outdent adapters: sibling creation inserts after selection, outdent inserts after the former parent in its parent, and indent appends to the immediate preceding sibling. Each adapter delegates to validated core operations; the UI commits each result once.
 
-These pure operations make history straightforward: retain earlier documents rather than relying on inverse operations. Hosts can build their own history and persistence around the same core.
+Renaming and moving preserve comments and descendants; changing a comment preserves the folder name, ID, order, and children. These pure operations make history straightforward: retain earlier documents rather than relying on inverse operations. Hosts can build their own history and persistence around the same core.
 
 ## Export helpers (`src/exports/index.ts`)
 
@@ -82,17 +88,17 @@ Download filenames retain their format extension and are shortened when necessar
 
 `ExportFormat` is `'zip' | 'txt' | 'md' | 'md-tree' | 'ascii' | 'unicode' | 'json' | 'svg' | 'png'`. Every format validates the input before generating output. The caller owns the download interaction.
 
-- **ZIP** uses `fflate`; each node has a zero-byte archive entry ending in `/` with directory metadata. No files, scripts, or placeholder contents are included.
-- **TXT** (`txt`, `.txt`) is a two-space plain outline.
+- **ZIP** uses `fflate`; each node has a zero-byte archive entry ending in `/` with directory metadata. No files, scripts, or placeholder contents are included. Comments do not affect ZIP entry names or add metadata files.
+- **TXT** (`txt`, `.txt`) is a four-space plain outline.
 - **ASCII tree** (`ascii`, `.ascii.txt`) uses ASCII connectors while preserving Unicode folder names as UTF-8 text.
 - **Unicode tree** (`unicode`, `.tree.txt`) uses Unicode connectors.
 - **Markdown list** (`md`, `.md`) is a nested bullet list.
 - **Markdown tree** (`md-tree`, `.tree.md`) preserves the earlier fenced Unicode-tree export and chooses a fence length that safely contains backticks in folder names.
-- **JSON** is the versioned document.
+- **JSON** uses version 2 for annotated documents and version 1 for unannotated documents, preserving IDs and comments.
 - **SVG** is XML-escaped vector markup with no scripts, external resources, or `foreignObject`. `renderSVG(document)` exposes the SVG text and dimensions.
 - **PNG** rasterizes the SVG using browser image and canvas APIs. It needs a browser; the other exports do not require the DOM. Dimension and pixel limits protect against unsupported or excessive canvases.
 
-The UI keeps six top-level format cards: TXT exposes plain/ASCII/Unicode subtypes, and Markdown exposes list/fenced-tree subtypes. Compound download extensions are retained when a long root name must be shortened.
+All text/Markdown and image formats include comments; SVG escapes names and comments separately and renders comments with secondary styling. PNG inherits that SVG content. The UI keeps six top-level format cards: TXT exposes plain/ASCII/Unicode subtypes, and Markdown exposes list/fenced-tree subtypes. Compound download extensions are retained when a long root name must be shortened.
 
 ## React editor (`src/ui/FolderEditor.tsx`)
 
@@ -146,7 +152,7 @@ The bottom sidebar menu and its responsive header counterpart open the same Sett
 
 ### Persistence
 
-The standalone editor keeps its draft in browser `localStorage` under `folderseed:draft:v1`. The saved state includes raw text (including invalid or empty text), mode, format, a compatibility parsing rule for unfinished legacy drafts, and the last valid document; reloading restores the editing state rather than silently normalizing it. Set a different `storageKey` to isolate separate embedded projects, or set it to `false` to opt out. A host that persists documents should validate them on load and use JSON exports for portable backups.
+The standalone editor keeps its draft in browser `localStorage` under `folderseed:draft:v1`. The saved state includes raw text (including invalid or empty text), mode, format, a compatibility parsing rule for unfinished legacy drafts, and the last valid document serialized with the correct version-1/version-2 wire format; reloading restores the editing state rather than silently normalizing it. Set a different `storageKey` to isolate separate embedded projects, or set it to `false` to opt out. The storage key is unchanged, and existing version-1 drafts remain readable. A host that persists documents should validate them on load and use `serializeJSON` for portable backups.
 
 Storage can be unavailable or cleared. It is not cloud synchronization, transactional multi-tab editing, or a guaranteed backup. Treat document changes as private user data when integrating with a host application's persistence.
 
@@ -188,8 +194,14 @@ A native drag selects its source while retaining the preceding selection's float
 
 Adding and renaming use `.fs-inline-editor` with a labeled input, Save name, Cancel editing, and an associated validation alert. Rename temporarily replaces the selected label; add renders an `.fs-inline-placeholder` at the prospective insertion point without changing the document. Enter, Save name, or focus leaving the inline editor validates and commits once. Explicit commits focus the resulting folder for scoped history shortcuts; a valid blur commit keeps focus on the destination control so opening a menu is not interrupted. Escape or Cancel editing discards the local value without changing the document or history. Moving focus between the inline controls does not trigger a premature blur commit. Invalid names remain editable and regain focus; duplicate, unsafe, and empty names use the same core validator. Composition state and the native composing/key-code signals prevent IME Enter from committing unfinished input. The preview, autosaved document, and callbacks see only valid commits. Inline drafts are ephemeral rather than saved folders. The status identifies an active name edit, and `beforeunload` warns for nonempty adds or changed rename values. Document history shortcuts are suspended while inline editing is active, including when Save or Cancel has focus, without overriding native input undo. Invalid inline descendants prevent ancestor collapse so validation cannot become hidden. Delete, Move, template confirmation, and Settings remain modal dialogs.
 
+### Inline comments and templates
+
+Each tree item owns a separate `.fs-folder-comment` column before its trailing child count. Comment cells ellipsize and expose their full text as a title. The nonmodal `.fs-comment-editor` is positioned above or below its row inside the visual area; it reuses inline editing validation and history with a labeled textarea, Save comment, and Cancel comment. Enter and valid blur commit once; Escape cancels, composition delays commits, and text undo remains native. Invalid input stays visible with an associated alert. Unfinished comment values are not persisted or exported; `beforeunload` warns about changed values. The document and preview see only successful commits. Row pitch, folder anchors, count placement, and panel dimensions do not depend on comment editing. The folder preview renders comments separately in `.fs-preview-comment`.
+
+All 29 folders across the four templates have comments. `makeTemplate(index, translate?)` attaches comments in preorder using the creation-time translator. A fresh default template localizes once after mount, preserving identical server/client first rendering and avoiding an Undo entry. Imported, restored, host-provided, and previously created documents are never relocalized. Template comments are ordinary editable metadata after creation.
+
 ### Interface language (`src/ui/i18n.tsx`)
 
 `useLanguage` and the per-editor `I18nProvider` resolve an Automatic preference from `navigator.languages`, then `navigator.language`, with English fallback. Regional and script aliases map to the twelve supported catalogs; browser preference order is respected. Automatic mode subscribes to `languagechange`, while a manual preference ignores those events until Automatic is selected again. The raw preference (`auto` or a supported locale code) uses `folderseed:language:v1` by default. `languageStorageKey` supports a custom key or `false` independently of document and theme storage. Blocked storage keeps the active session usable and reports a localized settings notice.
 
-Only the `.fs-app` root receives `lang` and `dir`; host document attributes are untouched. Arabic uses RTL chrome. Trees, overlays, preview paths, and text syntax stay LTR to retain hierarchy geometry, and inline folder-name inputs use `dir="auto"`. Catalog translation applies to interface labels and recognized application errors, never folder data or arbitrary imported text. Switching language does not rewrite invalid drafts, rename folders, change export contents, or emit document callbacks. Public repository documentation and source comments remain English.
+Only the `.fs-app` root receives `lang` and `dir`; host document attributes are untouched. Arabic uses RTL chrome. Trees, overlays, preview paths, and text syntax stay LTR to retain hierarchy geometry, and inline folder-name inputs use `dir="auto"`. Catalog translation applies to interface labels, recognized application errors, and newly created template comments, never existing folder data or arbitrary imported text. Switching language does not rewrite invalid drafts, rename folders, change export contents, or emit document callbacks. Public repository documentation and source comments remain English.

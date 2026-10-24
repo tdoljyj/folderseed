@@ -3,6 +3,22 @@ import { createDocument } from '../src/core';
 import { historyReducer, historyShortcut, type HistoryState } from '../src/ui/history';
 describe('immutable history', () => {
   const start = (): HistoryState => ({ past: [], present: createDocument('Start'), future: [] });
+  it('initializes fresh translated data without creating an undo step', () => {
+    const first = start();
+    const initialized = historyReducer(first, { type: 'initialize', document: createDocument('Localized start') });
+    expect(initialized.present.root.name).toBe('Localized start');
+    expect(initialized.past).toEqual([]);
+    expect(initialized.future).toEqual([]);
+    expect(historyReducer(initialized, { type: 'undo' })).toBe(initialized);
+  });
+  it('never initializes over an existing edit or its redo history', () => {
+    const first = start();
+    const edited = historyReducer(first, { type: 'commit', document: createDocument('User work') });
+    const action = { type: 'initialize' as const, document: createDocument('Late locale') };
+    expect(historyReducer(edited, action)).toBe(edited);
+    const undone = historyReducer(edited, { type: 'undo' });
+    expect(historyReducer(undone, action)).toBe(undone);
+  });
   it('undoes and redoes without changing earlier snapshots', () => {
     const first = start();
     const second = historyReducer(first, { type: 'commit', document: createDocument('Next') });

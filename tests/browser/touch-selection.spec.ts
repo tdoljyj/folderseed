@@ -48,7 +48,8 @@ test('clears mobile selection on touch pointerup without waiting for a compatibi
       const state: TapMeasurement = { pointerType: '', pointerUp: null, latency: null, blockedClicks: 0 };
       (window as unknown as ProbeWindow).__backgroundTapMeasurement = state;
       const editor = document.querySelector('.fs-editor')!;
-      editor.addEventListener('pointerup', event => {
+      // Measure before React's root capture handler can synchronously clear selection.
+      window.addEventListener('pointerup', event => {
         const pointer = event as PointerEvent;
         state.pointerType = pointer.pointerType;
         state.pointerUp = performance.now();
@@ -59,7 +60,7 @@ test('clears mobile selection on touch pointerup without waiting for a compatibi
           observer.disconnect();
         }
       });
-      observer.observe(editor, { subtree: true, attributes: true, attributeFilter: ['aria-pressed', 'class'] });
+      observer.observe(editor, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-pressed', 'class'] });
       // Block only the compatibility click in this probe, proving pointerup owns clearing.
       window.addEventListener('click', event => {
         if (event.target instanceof Element && event.target.matches(selector)) {
@@ -74,6 +75,7 @@ test('clears mobile selection on touch pointerup without waiting for a compatibi
     await expect.poll(() => page.evaluate(() => (window as unknown as ProbeWindow).__backgroundTapMeasurement.latency)).not.toBeNull();
     const measurement = await page.evaluate(() => (window as unknown as ProbeWindow).__backgroundTapMeasurement);
     expect(measurement.pointerType).toBe('touch');
+    expect(measurement.blockedClicks, 'the compatibility click cannot be responsible for clearing selection').toBe(1);
     expect(measurement.latency!, 'Chromium emulated-touch pointerup to selection clearing, not a physical-device claim').toBeLessThan(150);
     measurements.push(measurement);
   }

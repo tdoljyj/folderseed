@@ -3033,11 +3033,14 @@
 .fs-app[data-theme='dark'] .fs-context-actions button:hover:not(:disabled) { color: #e3efff; background: #33475e; }
 .fs-app[data-theme='dark'] .fs-context-actions .fs-context-delete:hover:not(:disabled) { color: #ffc3c3; background: #573439; }
 
-/* Comments occupy a separate, stable column before the trailing child count. */
+/* Comments use an aligned, capped name column instead of expanding with wide cards.
+   Deep levels retain enough room for the minimum name and floating action targets. */
+.fs-app .fs-tree {
+  --fs-comment-start: max(min(55cqw, 288px), calc(192px + var(--fs-comment-depth-inset, 0px)));
+}
 .fs-app :is(.fs-tree-item, .fs-inline-placeholder) {
-  --fs-comment-start: max(55cqw, calc(192px + var(--fs-action-inset, 0px)));
-  /* 192 px action/name boundary + 24 px comment target + 36 px trailing count. */
-  min-width: calc(252px + var(--fs-action-inset, 0px));
+  /* One full-tree column keeps root, nested, selected and collapsed rows aligned. */
+  min-width: calc(var(--fs-comment-start) + 60px);
 }
 .fs-app .fs-folder-frame:not(.has-actions) .fs-folder-select:not(:has(> .fs-inline-editor)) {
   max-width: calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 110px);
@@ -3237,3 +3240,74 @@
   .fs-app .fs-mobile-templates > span { min-width: 0; flex: 1 1 140px; overflow-wrap: anywhere; }
   .fs-app .fs-mobile-templates select { flex: 1 1 160px; }
 }
+
+/* Folder previews use the same column principle, independent of label length/badges. */
+.fs-app .fs-preview-canvas { container-type: inline-size; }
+.fs-app .fs-preview-tree {
+  --fs-preview-comment-start: max(min(55cqw, 288px), calc(128px + var(--fs-preview-depth-inset, 0px)));
+}
+.fs-app .fs-preview-row { margin-left: 0; }
+.fs-app .fs-preview-row .fs-preview-branch { left: calc(var(--fs-preview-row-inset, 0px) - 14px); }
+.fs-app .fs-preview-label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fs-app .fs-preview-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fs-app .fs-preview-root-badge { flex-shrink: 0; white-space: nowrap; }
+.fs-app .fs-preview-tree.has-comments { min-width: calc(var(--fs-preview-comment-start) + 80px); width: 100%; }
+.fs-app .fs-preview-tree.has-comments .fs-preview-row { min-width: 0; width: 100%; }
+.fs-app .fs-preview-tree.has-comments .fs-preview-folder { flex-shrink: 0; }
+.fs-app .fs-preview-tree.has-comments .fs-preview-label {
+  max-width: calc(var(--fs-preview-comment-start) - var(--fs-preview-row-inset, 0px) - 44px);
+}
+.fs-app .fs-preview-tree.has-comments .fs-preview-comment {
+  position: absolute;
+  left: var(--fs-preview-comment-start);
+  right: 0;
+  top: 0;
+  height: 34px;
+  display: block;
+  line-height: 34px;
+  margin: 0;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Matching panel rhythm keeps corresponding folders and generated text on the
+   same horizontal baseline without coupling raw draft content to the preview. */
+.fs-app :is(.fs-editor-toolbar, .fs-preview-toolbar) {
+  height: 64px;
+  min-height: 64px;
+  flex-shrink: 0;
+  padding-block: 0;
+  align-items: center;
+}
+.fs-app .fs-editor-toolbar .fs-editor-tabs { align-self: center; }
+.fs-app :is(.fs-panel-heading, .fs-preview-stats) { flex-shrink: 0; }
+.fs-app .fs-preview-stats { height: 48px; }
+.fs-app .fs-preview-canvas {
+  height: calc(var(--fs-editor-body-height) - 48px);
+  max-height: calc(var(--fs-editor-body-height) - 48px);
+}
+.fs-app .fs-preview-canvas.is-folders { padding-top: 44px; }
+.fs-app .fs-preview-root { margin-bottom: 0; }
+.fs-app .fs-preview-row { height: 34px; }
+.fs-app .fs-text-area { padding-top: 14px; }
+.fs-app .fs-text-area textarea { padding-top: 13px; }
+.fs-app .fs-preview-canvas.is-text { padding-top: 28px; }
+.fs-app :is(.fs-text-area textarea, .fs-text-preview) {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 24px;
+  tab-size: 4;
+}
+@media (max-width: 800px), (hover: none) and (pointer: coarse) {
+  .fs-app :is(.fs-text-area textarea, .fs-text-preview) { font-size: 16px; }
+}
+
+/* The independent preview tabs follow the editor's row rhythm too. */
+.fs-app .fs-preview-for-visual .fs-preview-canvas.is-text { padding-top: 44px; }
+.fs-app .fs-preview-for-visual .fs-text-preview { line-height: 34px; }
+.fs-app .fs-preview-for-text .fs-preview-canvas.is-folders { padding-top: 28px; }
+.fs-app .fs-preview-for-text .fs-preview-row { height: 24px; }
+.fs-app .fs-preview-for-text .fs-preview-tree.has-comments .fs-preview-comment { height: 24px; line-height: 24px; }

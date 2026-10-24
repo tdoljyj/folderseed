@@ -193,7 +193,7 @@ describe('annotated text roundtrips', () => {
 
   it('allows explicit removal of a comment suffix without changing the folder name', () => {
     const document = fixture();
-    const edited = formatIndented(document).replace(' // Root notes', '');
+    const edited = formatIndented(document).replace(/ +\/\/ Root notes/, '');
     const parsed = parseText(edited, 'plain');
     expect(parsed.root.name).toBe(document.root.name);
     expect(parsed.root.comment).toBeUndefined();

@@ -444,3 +444,102 @@ for (const { layout, locale, width, theme } of [
     await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`comment-column-${locale}-${layout}.png`) });
   });
 }
+
+for (const { width, theme, locale } of [
+  { width: 1920, theme: 'dark', locale: 'zh-CN' },
+  { width: 1440, theme: 'light', locale: 'en' },
+  { width: 768, theme: 'dark', locale: 'en' },
+  { width: 390, theme: 'light', locale: 'en' },
+]) {
+  test(`caps the aligned comment column without crowding names or actions at ${width}px`, async ({ page }, testInfo) => {
+    const longName = 'Long folder name that remains fully accessible when edited rather than reserving a wide column';
+    const note = 'Project references and working notes 我的说明';
+    await load(page, locale, width, theme);
+    await importFile(page, `Project // ${note}\n    Planning // ${note}\n        Before // ${note}\n        Working // ${note}\n            Child // ${note}\n        After // ${note}\n    ${longName} // ${note}`);
+    const column = await page.locator('.fs-visual-area').evaluate(element => {
+      const style = getComputedStyle(element);
+      return .55 * (element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+    });
+    const root = await geometry(page, 'Project');
+    expect(root.comment.x).toBeCloseTo(Math.max(Math.min(column, 288), 192 + 2 * (width <= 600 ? 14 : 22)), 1);
+    const commentStarts = await page.locator('.fs-folder-comment').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
+    for (const start of commentStarts) expect(start).toBeCloseTo(commentStarts[0], 1);
+    const previewStarts = await page.locator('.fs-preview-comment').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
+    for (const start of previewStarts) expect(start).toBeCloseTo(previewStarts[0], 1);
+    await page.locator('.fs-preview').screenshot({ path: testInfo.outputPath(`aligned-preview-comments-${width}-${theme}.png`) });
+    if (width === 1920) expect(column - root.comment.x).toBeGreaterThan(50);
+    for (const name of ['Project', 'Planning', 'Working', longName]) {
+      await clearSelection(page);
+      const before = await geometry(page, name);
+      expect(before.comment.x).toBeCloseTo(root.comment.x, 1);
+      if (name !== longName) {
+        expect(await folder(page, name).locator('.fs-folder-name').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      }
+      await select(page, name);
+      stable(before, await geometry(page, name));
+      const actions = await page.locator('.fs-context-actions button').evaluateAll(elements => elements.filter(element => getComputedStyle(element).visibility === 'visible').map(element => {
+        const box = element.getBoundingClientRect(), hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return { right: box.right, width: box.width, height: box.height, hit: hit === element || !!hit && element.contains(hit) };
+      }));
+      const cell = (await comment(page, name).boundingBox())!;
+      for (const action of actions) {
+        expect(action.width).toBe(24); expect(action.height).toBe(24);
+        expect(action.hit).toBe(true); expect(action.right).toBeLessThanOrEqual(cell.x);
+      }
+      if (name === 'Working') {
+        expect(actions).toHaveLength(8);
+        await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`compact-comment-actions-${width}-${theme}.png`) });
+      }
+      await clearSelection(page);
+      stable(before, await geometry(page, name));
+    }
+    await folder(page, 'Planning').locator('..').locator('.fs-disclosure').click();
+    expect((await geometry(page, 'Project')).comment.x).toBeCloseTo(root.comment.x, 1);
+    await folder(page, 'Planning').locator('..').locator('.fs-disclosure').click();
+    await expect(folder(page, longName)).toHaveAttribute('title', longName);
+    expect(await folder(page, longName).locator('.fs-folder-name').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+    await select(page, longName);
+    await page.locator('.fs-context-actions [data-action="rename"]').click();
+    await expect(page.locator('.fs-inline-name')).toHaveValue(longName);
+    await expect(page.locator('.fs-inline-name')).toBeFocused();
+    await page.locator('.fs-inline-name').press('Escape');
+    await clearSelection(page);
+    const before = await geometry(page, 'Planning');
+    await comment(page, 'Planning').click();
+    await expect(commentInput(page)).toBeFocused();
+    await expect(commentInput(page)).toHaveValue(note);
+    stable(before, await geometry(page, 'Planning'));
+    const cell = (await comment(page, 'Planning').boundingBox())!, input = (await commentInput(page).boundingBox())!;
+    expect(input.x).toBeGreaterThanOrEqual(cell.x);
+    expect(input.x + input.width).toBeLessThanOrEqual(cell.x + cell.width);
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`compact-comment-edit-${width}-${theme}.png`) });
+    await commentInput(page).press('Escape');
+    stable(before, await geometry(page, 'Planning'));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`compact-comment-column-${width}-${theme}.png`) });
+  });
+}
+
+
+test('keeps every comment aligned for a deep mobile document without page overflow', async ({ page }, testInfo) => {
+  await load(page, 'en', 390, 'dark');
+  const text = ['Project // Root notes', ...Array.from({ length: 12 }, (_, index) => `${'    '.repeat(index + 1)}Level ${index + 1} // Notes at level ${index + 1}`)].join('\n');
+  await importFile(page, text);
+  for (const selector of ['.fs-folder-comment', '.fs-preview-comment']) {
+    const starts = await page.locator(selector).evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
+    expect(starts).toHaveLength(13);
+    for (const start of starts) expect(start).toBeCloseTo(starts[0], 1);
+  }
+  expect(await page.locator('.fs-tree').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.locator('.fs-preview-canvas').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const before = await geometry(page, 'Level 12');
+  await select(page, 'Level 12');
+  stable(before, await geometry(page, 'Level 12'));
+  await clearSelection(page);
+  stable(before, await geometry(page, 'Level 12'));
+  await comment(page, 'Level 12').click();
+  await expect(commentInput(page)).toHaveValue('Notes at level 12');
+  await commentInput(page).press('Escape');
+  await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath('aligned-deep-mobile-comments.png') });
+});

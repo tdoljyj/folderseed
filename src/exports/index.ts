@@ -1,7 +1,6 @@
 import { zipSync, type Zippable } from 'fflate';
 import {
   flatten,
-  formatFolderLabel,
   formatText,
   formatTree,
   serializeJSON,
@@ -25,6 +24,8 @@ const PNG_MAX_EDGE = 8192;
 const PNG_MAX_PIXELS = 32_000_000;
 const ROW_HEIGHT = 32;
 const FIRST_ROW = 112;
+const COMMENT_GAP = 28;
+const RIGHT_PADDING = 40;
 
 /** Names and comments are user-controlled text, never executable SVG markup. */
 function escapeXML(value: string): string {
@@ -33,16 +34,25 @@ function escapeXML(value: string): string {
   })[character]!);
 }
 
-function textWidth(value: string): number {
-  // Conservative estimate avoids clipping CJK and emoji without requiring a DOM.
-  return Array.from(value).reduce((width, character) => width + (character.codePointAt(0)! > 0xFF ? 19 : /[MW@%]/.test(character) ? 17 : 11), 0);
+function textWidth(value: string, fontSize = 14): number {
+  // Keep a conservative bound without a DOM or external font. Count every code
+  // point, including combining marks/emoji sequences, rather than assuming a
+  // grapheme fits one Latin cell. Root text is larger than the remaining rows.
+  return Math.ceil(Array.from(value).reduce((width, character) => width
+    + (character.codePointAt(0)! > 0x7F ? 19 : /[MWmw@%&]/.test(character) ? 17 : 11), 0) * fontSize / 14);
 }
 
 /** SVG is vector-only (no HTML, external fonts, scripts, or remote references). */
 export function renderSVG(input: DirectoryDocument): { svg: string; width: number; height: number } {
   const document = validateDocument(input);
   const rows = flatten(document);
-  const width = Math.max(480, ...rows.map(({ node, depth }) => 120 + depth * 28 + textWidth(formatFolderLabel(node))));
+  const nameRight = Math.max(...rows.map(({ node, depth }, index) => 66 + depth * 28 + textWidth(node.name, index === 0 ? 16 : 14)));
+  // One column across the entire tree, including names on uncommented rows.
+  // Independently size both columns: the longest name and comment may belong
+  // to different rows, so a maximum of each combined label is not sufficient.
+  const commentX = nameRight + COMMENT_GAP;
+  const commentWidth = Math.max(0, ...rows.map(({ node }) => node.comment ? textWidth(` // ${node.comment}`) : 0));
+  const width = Math.max(480, nameRight + RIGHT_PADDING, commentWidth ? commentX + commentWidth + RIGHT_PADDING : 0);
   const height = FIRST_ROW + rows.length * ROW_HEIGHT + 40;
   const positions = new Map(rows.map((row, index) => [row.node.id, { x: 44 + row.depth * 28, y: FIRST_ROW + index * ROW_HEIGHT }]));
   const lines: string[] = [];
@@ -61,8 +71,8 @@ export function renderSVG(input: DirectoryDocument): { svg: string; width: numbe
     const { x, y } = positions.get(node.id)!;
     const fill = depth === 0 ? '#deecfa' : '#f7ebcb';
     const stroke = depth === 0 ? '#4384c6' : '#a18445';
-    const comment = node.comment ? `<tspan fill="#626268" font-size="14" font-weight="400"> // ${escapeXML(node.comment)}</tspan>` : '';
-    return `<g><path d="M ${x - 9} ${y - 7} h 7 l 3 3 h 9 v 12 h -19 z" fill="${fill}" stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round"/><text x="${x + 22}" y="${y + 5}" font-size="${index === 0 ? 16 : 14}" font-weight="${index === 0 ? 650 : 450}" fill="#1d1d1f" xml:space="preserve">${escapeXML(node.name)}${comment}</text></g>`;
+    const comment = node.comment ? `<text x="${commentX}" y="${y + 5}" xml:space="preserve"><tspan fill="#626268" font-size="14" font-weight="400"> // ${escapeXML(node.comment)}</tspan></text>` : '';
+    return `<g><path d="M ${x - 9} ${y - 7} h 7 l 3 3 h 9 v 12 h -19 z" fill="${fill}" stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round"/><text x="${x + 22}" y="${y + 5}" font-size="${index === 0 ? 16 : 14}" font-weight="${index === 0 ? 650 : 450}" fill="#1d1d1f" xml:space="preserve">${escapeXML(node.name)}</text>${comment}</g>`;
   }).join('\n');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title description">
 <title id="title">${escapeXML(document.root.name)} — directory structure</title>
@@ -98,11 +108,13 @@ async function rasterizePNG(svg: string, width: number, height: number): Promise
       image.src = url;
     });
     const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(width * scale);
-    canvas.height = Math.ceil(height * scale);
+    // Round down both sides so a fractional scale cannot exceed the pixel cap.
+    // Scale to those exact bounds instead of clipping a fractional last pixel.
+    canvas.width = Math.floor(width * scale);
+    canvas.height = Math.floor(height * scale);
     const context = canvas.getContext('2d');
     if (!context) throw new Error('PNG export is unavailable in this browser. Please choose SVG.');
-    context.scale(scale, scale);
+    context.scale(canvas.width / width, canvas.height / height);
     context.drawImage(image, 0, 0, width, height);
     return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => {
       if (blob) resolve(blob);

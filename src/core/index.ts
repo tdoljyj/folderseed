@@ -94,7 +94,8 @@ export function validateComment(value: unknown, line?: number): string {
 /** The first exact delimiter is unambiguous because slashes are invalid in names. */
 function parseFolderLabel(label: string, line: number): Pick<FolderNode, 'name' | 'comment'> {
   const delimiter = label.indexOf(' // ');
-  let name = delimiter < 0 ? label : label.slice(0, delimiter);
+  // Only generated ASCII padding belongs to the delimiter. Comment whitespace is literal.
+  let name = delimiter < 0 ? label : label.slice(0, delimiter).replace(/ +$/u, '');
   const comment = delimiter < 0 ? '' : validateComment(label.slice(delimiter + 4), line);
   // A single trailing slash is an optional folder marker, never a path separator.
   if (name.endsWith('/') && !name.endsWith('//')) name = name.slice(0, -1);
@@ -443,32 +444,92 @@ export function parseText(text: string, format: TextFormat = 'auto', indent: Par
   return parseTextLines(lines, format === 'auto' ? inferTextFormat(lines) : format, indent);
 }
 
+interface TextOutputLine {
+  beforeComment: string;
+  comment?: string;
+  afterComment?: string;
+}
+
+const graphemes = new Intl.Segmenter('en', { granularity: 'grapheme' });
+const invisibleCharacter = /[\p{Mark}\p{Default_Ignorable_Code_Point}]/u;
+const emojiPresentation = /\p{Emoji_Presentation}/u;
+const emojiVariation = /\p{Emoji}\uFE0F|[0-9#*]\uFE0F?\u20E3/u;
+
+/** Fixed-cell text convention: ambiguous characters are narrow, CJK/fullwidth are wide. */
+function isWideCharacter(point: number): boolean {
+  return point >= 0x1100 && (
+    point <= 0x115f || point === 0x2329 || point === 0x232a
+    || (point >= 0x2e80 && point <= 0xa4cf && point !== 0x303f)
+    || (point >= 0xac00 && point <= 0xd7a3)
+    || (point >= 0xf900 && point <= 0xfaff)
+    || (point >= 0xfe10 && point <= 0xfe19)
+    || (point >= 0xfe30 && point <= 0xfe6f)
+    || (point >= 0xff01 && point <= 0xff60)
+    || (point >= 0xffe0 && point <= 0xffe6)
+    || (point >= 0x16fe0 && point <= 0x18dff)
+    || (point >= 0x1aff0 && point <= 0x1b2ff)
+    || (point >= 0x1f200 && point <= 0x1f251)
+    || (point >= 0x20000 && point <= 0x3fffd)
+  );
+}
+
+/** Measure graphemes, not UTF-16 units; tabs match the editor's four-column stops. */
+function textColumns(text: string): number {
+  let columns = 0;
+  for (const { segment } of graphemes.segment(text)) {
+    if (segment === '\t') {
+      columns += 4 - columns % 4;
+      continue;
+    }
+    // A flag, skin-tone or ZWJ emoji occupies one wide cell, not one per codepoint.
+    if (emojiVariation.test(segment) || (!segment.includes('\uFE0E') && emojiPresentation.test(segment))) {
+      columns += 2;
+      continue;
+    }
+    let width = 0;
+    for (const character of segment) {
+      if (!invisibleCharacter.test(character)) width = Math.max(width, isWideCharacter(character.codePointAt(0)!) ? 2 : 1);
+    }
+    columns += width;
+  }
+  return columns;
+}
+
+/** Align generated comment separators only; raw drafts and uncommented labels are untouched. */
+function formatAlignedLines(lines: TextOutputLine[]): string {
+  const widths = lines.map(line => line.comment ? textColumns(line.beforeComment) : 0);
+  const commentColumn = Math.max(0, ...widths) + 1;
+  return lines.map((line, index) => line.beforeComment
+    + (line.comment ? `${' '.repeat(commentColumn - widths[index])}// ${line.comment}` : '')
+    + (line.afterComment ?? '')).join('\n');
+}
+
 /** Nested Markdown lists with whole-label code spans, safe for punctuation and backticks. */
 export function formatMarkdown(doc: DirectoryDocument, indent: Indent = 2): string {
   if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
   const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
-  return flatten(doc).map(({ node, depth }) => {
+  return formatAlignedLines(flatten(doc).map(({ node, depth }) => {
     const label = formatFolderLabel(node);
     const longestRun = Math.max(0, ...(label.match(/`+/g) ?? []).map(run => run.length));
     const delimiter = '`'.repeat(longestRun + 1);
     const padding = label.startsWith('`') || label.endsWith('`') ? ' ' : '';
-    return `${unit.repeat(depth)}- ${delimiter}${padding}${label}${padding}${delimiter}`;
-  }).join('\n');
+    return { beforeComment: `${unit.repeat(depth)}- ${delimiter}${padding}${node.name}`, comment: node.comment, afterComment: `${padding}${delimiter}` };
+  }));
 }
 
 /** Four-column ASCII tree using |--, `--, and | continuation guides. */
 export function formatASCII(doc: DirectoryDocument): string {
   const { root } = validateDocument(doc);
-  const lines = [formatFolderLabel(root)];
+  const lines: TextOutputLine[] = [{ beforeComment: root.name, comment: root.comment }];
   function visit(node: FolderNode, prefix: string): void {
     node.children.forEach((child, index) => {
       const last = index === node.children.length - 1;
-      lines.push(`${prefix}${last ? '`-- ' : '|-- '}${formatFolderLabel(child)}`);
+      lines.push({ beforeComment: `${prefix}${last ? '`-- ' : '|-- '}${child.name}`, comment: child.comment });
       visit(child, `${prefix}${last ? '    ' : '|   '}`);
     });
   }
   visit(root, '');
-  return lines.join('\n');
+  return formatAlignedLines(lines);
 }
 
 export function formatText(doc: DirectoryDocument, format: ExplicitTextFormat = 'plain', indent: Indent = 2): string {
@@ -496,21 +557,23 @@ export function flatten(doc: DirectoryDocument): FlatFolder[] {
 export function formatIndented(doc: DirectoryDocument, indent: Indent = 2): string {
   if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
   const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
-  return flatten(doc).map(({ node, depth }) => `${unit.repeat(depth)}${formatFolderLabel(node)}`).join('\n');
+  return formatAlignedLines(flatten(doc).map(({ node, depth }) => ({
+    beforeComment: `${unit.repeat(depth)}${node.name}`, comment: node.comment,
+  })));
 }
 
 export function formatTree(doc: DirectoryDocument): string {
   const { root } = validateDocument(doc);
-  const lines = [formatFolderLabel(root)];
+  const lines: TextOutputLine[] = [{ beforeComment: root.name, comment: root.comment }];
   function visit(node: FolderNode, prefix: string): void {
     node.children.forEach((child, index) => {
       const last = index === node.children.length - 1;
-      lines.push(`${prefix}${last ? '└── ' : '├── '}${formatFolderLabel(child)}`);
+      lines.push({ beforeComment: `${prefix}${last ? '└── ' : '├── '}${child.name}`, comment: child.comment });
       visit(child, `${prefix}${last ? '    ' : '│   '}`);
     });
   }
   visit(root, '');
-  return lines.join('\n');
+  return formatAlignedLines(lines);
 }
 
 function locate(root: FolderNode, id: string, parent: FolderNode | null = null): { node: FolderNode; parent: FolderNode | null } | undefined {

@@ -71,6 +71,7 @@ async function geometry(page: Page, name: string) {
 }
 function sameAnchors(before: Awaited<ReturnType<typeof geometry>>, after: Awaited<ReturnType<typeof geometry>>) {
   for (const element of ['grip', 'glyph', 'label', 'count'] as const) {
+    if (element === 'grip' && before.grip.width === 0) { expect(after.grip.width).toBe(0); continue; }
     for (const axis of ['x', 'y'] as const) expect(after[element][axis], `${element} ${axis} stays stationary`).toBeCloseTo(before[element][axis], 1);
   }
   expect(after.row.height).toBe(34);
@@ -103,14 +104,14 @@ for (const scenario of cases) {
       await page.mouse.move(0, 0);
       const before = await geometry(page, name);
       expect(before.gripFirst).toBe(true);
-      expect(before.grip.width).toBe(scenario.width <= 600 ? 14 : 16);
+      expect(before.grip.width).toBe(scenario.width <= 600 ? (depth === 0 ? 0 : 14) : 16);
       expect(before.gripHasIcon).toBe(depth > 0);
       expect(before.draggable).toBe(depth > 0);
       expect(before.count.y).toBeCloseTo(before.row.y, 1);
       expect(before.count.x + before.count.width).toBeCloseTo(before.item.x + before.item.width - 9, 1);
-      expect(before.glyph.x).toBeCloseTo((scenario.width <= 600 ? 41 : 55) + depth * (scenario.width <= 600 ? 14 : 22), 1);
-      expect(before.label.x).toBeCloseTo((scenario.width <= 600 ? 67 : 83) + depth * (scenario.width <= 600 ? 14 : 22), 1);
-      expect(before.grip.x + before.grip.width).toBeLessThanOrEqual(before.disclosure!.x);
+      expect(before.glyph.x).toBeCloseTo(scenario.width <= 600 ? (depth === 0 ? 25 : 41 + (depth - 1) * 14) : 55 + depth * 22, 1);
+      expect(before.label.x).toBeCloseTo(scenario.width <= 600 ? (depth === 0 ? 51 : 67 + (depth - 1) * 14) : 83 + depth * 22, 1);
+      if (before.grip.width) expect(before.grip.x + before.grip.width).toBeLessThanOrEqual(before.disclosure!.x);
       expect(before.disclosure!.x + before.disclosure!.width).toBeLessThanOrEqual(before.glyph.x);
       await row(page, name).hover();
       if (depth > 0) await expect(row(page, name).locator('.fs-drag-hint')).toHaveCSS('opacity', '1');

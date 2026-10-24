@@ -1842,8 +1842,8 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     const initialLayout = await treeLayout(page);
     for (const row of initialLayout.rows) expect(row.height).toBe(34);
     for (const [depth, name] of names.entries()) {
-      expect(anchors[depth].glyphX).toBeCloseTo((layout === 'mobile' ? 41 : 55) + depth * (layout === 'mobile' ? 14 : 22), 1);
-      expect(anchors[depth].nameX).toBeCloseTo((layout === 'mobile' ? 67 : 83) + depth * (layout === 'mobile' ? 14 : 22), 1);
+      expect(anchors[depth].glyphX).toBeCloseTo(layout === 'mobile' ? (depth === 0 ? 25 : 41 + (depth - 1) * 14) : 55 + depth * 22, 1);
+      expect(anchors[depth].nameX).toBeCloseTo(layout === 'mobile' ? (depth === 0 ? 51 : 67 + (depth - 1) * 14) : 83 + depth * 22, 1);
       await selectFolder(page, name);
       await expect(folderActions(page, name)).toBeVisible();
       await expectFolderAnchor(page, name, anchors[depth]);

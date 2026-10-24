@@ -60,6 +60,7 @@ async function anchor(page: Page, name: string) {
 }
 function stationary(before: Awaited<ReturnType<typeof anchor>>, after: Awaited<ReturnType<typeof anchor>>) {
   for (const part of ['glyph', 'name', 'grip', 'count', 'comment'] as const) {
+    if (part === 'grip' && before.grip.width === 0) { expect(after.grip.width).toBe(0); continue; }
     for (const axis of ['x', 'y'] as const) expect(after[part][axis], `${part} ${axis}`).toBeCloseTo(before[part][axis], 1);
   }
   expect(after.row.height).toBe(34);
@@ -98,6 +99,12 @@ async function usableActions(page: Page) {
   const count = await item(page, SELECTED).locator(':scope > .fs-row-count').boundingBox();
   for (const target of targets) expect(target.x < count!.x + count!.width && target.x + target.width > count!.x && target.y < count!.y + count!.height && target.y + target.height > count!.y, `${target.name} leaves the count clear`).toBe(false);
 }
+async function caretAtEnd(field: Locator) {
+  await expect.poll(() => field.evaluate(element => {
+    const input = element as HTMLInputElement | HTMLTextAreaElement;
+    return { start: input.selectionStart, end: input.selectionEnd, length: input.value.length };
+  })).toEqual({ start: (await field.inputValue()).length, end: (await field.inputValue()).length, length: (await field.inputValue()).length });
+}
 async function checkNativeSelect(page: Page, select: Locator, scale: number) {
   await expect(select).toBeVisible();
   await select.focus();
@@ -125,18 +132,33 @@ for (const scenario of [
       await clear(page);
       const before = await anchor(page, name);
       expect(before.row.height).toBe(34);
-      expect(before.grip.width).toBe(14);
-      expect(before.disclosure!.x).toBeCloseTo(17 + depth * 14, 1);
+      expect(before.grip.width).toBe(depth === 0 ? 0 : 14);
+      expect(before.disclosure!.x).toBeCloseTo(depth === 0 ? 1 : 17 + (depth - 1) * 14, 1);
       expect(before.disclosure!.width).toBe(24);
-      expect(before.glyph.x).toBeCloseTo(41 + depth * 14, 1);
-      expect(before.name.x).toBeCloseTo(67 + depth * 14, 1);
+      expect(before.glyph.x).toBeCloseTo(depth === 0 ? 25 : 41 + (depth - 1) * 14, 1);
+      expect(before.name.x).toBeCloseTo(depth === 0 ? 51 : 67 + (depth - 1) * 14, 1);
       // Previous mobile slots allowed commentStart - depthInset - 138 px for a long name.
-      const previousNameWidth = before.comment.x - depth * 14 - 138;
+      const previousNameWidth = before.comment.x - Math.max(0, depth - 1) * 14 - 138;
       expect(before.name.width - previousNameWidth).toBeGreaterThanOrEqual(15.5);
       await tapOnce(page, folder(page, name));
       await expect(folder(page, name)).toHaveAttribute('aria-pressed', 'true');
       stationary(before, await anchor(page, name));
       expect(await panels(page)).toEqual(layout);
+      if (depth === 0) {
+        const disclosure = page.locator('.fs-floating-disclosure');
+        await expect(disclosure).toBeVisible();
+        const selectedDisclosure = await disclosure.evaluate(element => {
+          const tree = document.querySelector<HTMLElement>('.fs-tree')!, origin = tree.getBoundingClientRect(), box = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return { x: box.x - origin.x + tree.scrollLeft, centerY: box.y + box.height / 2 - origin.y + tree.scrollTop,
+            width: box.width, height: box.height, hit: hit === element || !!hit && element.contains(hit) };
+        });
+        expect(selectedDisclosure.x).toBeCloseTo(before.disclosure!.x, 1);
+        expect(selectedDisclosure.centerY).toBeCloseTo(before.disclosure!.y + before.disclosure!.height / 2, 1);
+        expect(selectedDisclosure.width).toBe(24);
+        expect(selectedDisclosure.height).toBe(24);
+        expect(selectedDisclosure.hit).toBe(true);
+      }
       if (name === SELECTED) await usableActions(page);
       await clear(page);
       stationary(before, await anchor(page, name));
@@ -148,15 +170,18 @@ for (const scenario of [
     // A single trusted tap opens and focuses rename/add immediately, without a second tap.
     await tapOnce(page, action(page, 'rename'));
     await largeFocusedField(page, page.locator('.fs-inline-name'), scale);
+    await caretAtEnd(page.locator('.fs-inline-name'));
     await page.locator('.fs-inline-name').press('Escape');
     await tapOnce(page, action(page, 'add-child'));
     await largeFocusedField(page, page.locator('.fs-inline-name'), scale);
+    await caretAtEnd(page.locator('.fs-inline-name'));
     await page.locator('.fs-inline-name').press('Escape');
     await clear(page);
     const beforeComment = await anchor(page, ROOT);
     await tapOnce(page, comment(page, ROOT));
     const field = page.locator('.fs-inline-comment');
     await largeFocusedField(page, field, scale);
+    await caretAtEnd(field);
     stationary(beforeComment, await anchor(page, ROOT));
     const box = (await comment(page, ROOT).boundingBox())!, inputBox = (await field.boundingBox())!;
     expect(inputBox.x).toBeGreaterThanOrEqual(box.x);
@@ -201,6 +226,88 @@ for (const scenario of [
   });
 }
 
+
+for (const width of [320, 390]) {
+  test(`keeps a childless root flush left and places an editable caret at the end at ${width}px`, async ({ page }, testInfo) => {
+    await load(page, width, 'en', 'dark');
+    await tapOnce(page, folder(page, ROOT));
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`mobile-root-children-selected-${width}-dark.png`) });
+    await clear(page);
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`mobile-root-children-deselected-${width}-dark.png`) });
+    const name = 'Solo root planning', note = 'An existing root note with enough details for horizontal editing.';
+    await page.locator('input[type="file"]').setInputFiles({ name: 'solo-root.txt', mimeType: 'text/plain', buffer: Buffer.from(`${name} // ${note}`) });
+    await expect(page.locator('.fs-folder-name')).toHaveText([name]);
+    const before = await anchor(page, name), layout = await panels(page);
+    expect(before.grip.width).toBe(0);
+    expect(before.disclosure?.width ?? 0).toBe(0);
+    expect(before.glyph.x).toBeCloseTo(1, 1);
+    expect(before.name.x).toBeCloseTo(27, 1);
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`mobile-root-empty-${width}-dark.png`) });
+    await tapOnce(page, folder(page, name));
+    stationary(before, await anchor(page, name));
+    await expect(row(page, name).locator('.fs-disclosure')).toHaveCount(0);
+    await expect(page.locator('.fs-floating-disclosure')).toHaveCount(0);
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`mobile-root-selected-${width}-dark.png`) });
+    await tapOnce(page, action(page, 'rename'));
+    const input = page.locator('.fs-inline-name');
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(name);
+    await caretAtEnd(input);
+    await input.pressSequentially('X');
+    await expect(input).toHaveValue(`${name}X`);
+    await caretAtEnd(input);
+    // A later tap deliberately moves the caret; rerendering must not force it back to the end.
+    await input.evaluate(element => { element.scrollLeft = 0; });
+    const box = (await input.boundingBox())!;
+    await page.touchscreen.tap(box.x + 7, box.y + box.height / 2);
+    const caret = await input.evaluate(element => (element as HTMLInputElement).selectionStart!);
+    const oldValue = await input.inputValue();
+    expect(caret).toBeLessThan(oldValue.length);
+    await input.pressSequentially('Q');
+    await expect(input).toHaveValue(`${oldValue.slice(0, caret)}Q${oldValue.slice(caret)}`);
+    expect(await input.evaluate(element => (element as HTMLInputElement).selectionStart)).toBe(caret + 1);
+    expect(await input.evaluate(element => (element as HTMLInputElement).selectionEnd)).toBe(caret + 1);
+    await input.press('Escape');
+    await clear(page);
+    stationary(before, await anchor(page, name));
+
+    await tapOnce(page, comment(page, name));
+    const field = page.locator('.fs-inline-comment');
+    await expect(field).toBeFocused();
+    await caretAtEnd(field);
+    await field.pressSequentially('X');
+    await expect(field).toHaveValue(`${note}X`);
+    await caretAtEnd(field);
+    await field.evaluate(element => { element.scrollLeft = 0; });
+    const commentBox = (await field.boundingBox())!;
+    await page.touchscreen.tap(commentBox.x + 5, commentBox.y + commentBox.height / 2);
+    const commentCaret = await field.evaluate(element => (element as HTMLTextAreaElement).selectionStart);
+    expect(commentCaret).toBeLessThan(note.length);
+    await field.pressSequentially('Q');
+    await expect(field).toHaveValue(`${note.slice(0, commentCaret)}Q${note.slice(commentCaret)}X`);
+    expect(await field.evaluate(element => (element as HTMLTextAreaElement).selectionStart)).toBe(commentCaret + 1);
+    expect(await field.evaluate(element => (element as HTMLTextAreaElement).selectionEnd)).toBe(commentCaret + 1);
+    await field.press('Escape');
+    await clear(page);
+    stationary(before, await anchor(page, name));
+    expect(await panels(page)).toEqual(layout);
+    await expect(comment(page, name)).toHaveText(note);
+    if (width === 320) {
+      await tapOnce(page, folder(page, name));
+      await tapOnce(page, action(page, 'rename'));
+      await input.dispatchEvent('compositionstart');
+      await input.fill('Composed root');
+      await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+      await expect(input).toHaveValue('Composed root');
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1')!).document.root.name)).toBe(name);
+      await input.dispatchEvent('compositionend', { data: 'Composed root' });
+      await input.press('Escape');
+      await expect(folder(page, name)).toBeVisible();
+    }
+    await shellFits(page, width);
+  });
+}
+
 test.describe('compact layout with native pointer dragging', () => {
   test.use({ isMobile: false, hasTouch: false });
   test('starts a native drag from the compact leading grip and restores the subtree with Undo', async ({ page }) => {
@@ -228,4 +335,41 @@ test.describe('compact layout with native pointer dragging', () => {
     await expect(page.locator('.fs-folder-name')).toHaveText([ROOT, PARENT, 'Before', SELECTED, 'Child', 'After', 'Tail']);
     await shellFits(page, 360);
   });
+  test('maps a native after-subtree drag to the first mobile depth with no extra leading indent', async ({ page }, testInfo) => {
+    await load(page, 390, 'en', 'dark');
+    const source = 'Project\n    A\n        Source // Move this subtree\n            Leaf // Keep this note\n        B\n            C';
+    await page.locator('input[type="file"]').setInputFiles({ name: 'mobile-outdent.txt', mimeType: 'text/plain', buffer: Buffer.from(source) });
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'Source', 'Leaf', 'B', 'C']);
+    const before = await page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1')!).document);
+    await row(page, 'Source').hover();
+    const grip = (await row(page, 'Source').locator('.fs-drag-hint').boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2 + 10, { steps: 4 });
+    const tree = (await page.locator('.fs-tree').boundingBox())!, target = (await row(page, 'C').boundingBox())!;
+    const lines: number[] = [];
+    for (const [depth, ancestor] of [[3, 'C'], [2, 'B'], [1, 'A']] as const) {
+      const x = tree.x + (depth - 1) * 14 + 5, y = target.y + target.height - 2;
+      await page.mouse.move(x, y, { steps: 12 });
+      await page.mouse.move(x + 1, y);
+      const line = page.locator('.fs-drop-line.is-after');
+      await expect(line).toHaveCount(1);
+      await expect(page.locator('.fs-tree-help')).toContainText(`Release to insert after ${ancestor}`);
+      const lineX = (await line.boundingBox())!.x - tree.x;
+      expect(lineX).toBeCloseTo((depth - 1) * 14, 1);
+      lines.push(lineX);
+    }
+    expect(lines[0] - lines[1]).toBeCloseTo(14, 1);
+    expect(lines[1] - lines[2]).toBeCloseTo(14, 1);
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath('mobile-first-depth-outdent-dark.png') });
+    await page.mouse.up();
+    await expect(page.locator('.fs-selected-path')).toHaveText('Project/Source');
+    await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source', 'Leaf']);
+    await expect(comment(page, 'Source')).toHaveText('Move this subtree');
+    await expect(comment(page, 'Leaf')).toHaveText('Keep this note');
+    await page.locator('.fs-history button').first().click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('folderseed:draft:v1')!).document)).toEqual(before);
+    await shellFits(page, 390);
+  });
+
 });

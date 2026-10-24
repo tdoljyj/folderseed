@@ -14,11 +14,11 @@ export function dropPlacement(offsetY: number, height: number, isRoot: boolean):
  * Map a pointer's indentation band to an insertion depth (root is depth zero).
  * Infinity means the geometry is unavailable: resolveDropTarget will not outdent.
  */
-export function dropDepth(clientX: number, treeLeft: number, baseInset = 12, indent = 22): number {
-  if (![clientX, treeLeft, baseInset, indent].every(Number.isFinite) || baseInset < 0 || indent <= 0) {
+export function dropDepth(clientX: number, treeLeft: number, baseInset = 12, indent = 22, firstIndent = indent): number {
+  if (![clientX, treeLeft, baseInset, indent, firstIndent].every(Number.isFinite) || baseInset < 0 || indent <= 0 || firstIndent < 0) {
     return Infinity;
   }
-  return Math.max(1, Math.floor((clientX - treeLeft - baseInset) / indent));
+  return Math.max(1, Math.floor((clientX - treeLeft - baseInset - firstIndent) / indent) + 1);
 }
 
 /**

@@ -232,10 +232,10 @@ describe('drag safety and atomic failures', () => {
 });
 
 describe('horizontal insertion depth', () => {
-  it.each([[0, 1], [14, 1], [27.9, 1], [28, 2], [42, 3], [56, 4]])('uses the compact mobile row geometry at x=%s', (x, expected) => {
-    expect(dropDepth(x, 0, 0, 14)).toBe(expected);
-    expect(dropDepth(x + 120, 120, 0, 14)).toBe(expected);
-    expect(dropDepth(x - 80, -80, 0, 14)).toBe(expected);
+  it.each([[0, 1], [13.9, 1], [14, 2], [28, 3], [42, 4], [56, 5]])('uses the compact mobile row geometry at x=%s', (x, expected) => {
+    expect(dropDepth(x, 0, 0, 14, 0)).toBe(expected);
+    expect(dropDepth(x + 120, 120, 0, 14, 0)).toBe(expected);
+    expect(dropDepth(x - 80, -80, 0, 14, 0)).toBe(expected);
   });
 
   it.each([
@@ -245,6 +245,10 @@ describe('horizontal insertion depth', () => {
     expect(dropDepth(x, 0)).toBe(expected);
     expect(dropDepth(x + 240, 240)).toBe(expected);
     expect(dropDepth(x - 240, -240)).toBe(expected);
+  });
+
+  it.each([NaN, Infinity, -1])('rejects an invalid first-level indent %s', firstIndent => {
+    expect(dropDepth(20, 0, 0, 14, firstIndent)).toBe(Infinity);
   });
 
   it('supports custom insets, fractional coordinates, and indent widths', () => {

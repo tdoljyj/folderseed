@@ -10,10 +10,17 @@ const formats = ['markdown', 'ascii', 'unicode', 'plain'] as const;
 const labels = { plain: 'Plain text', markdown: 'Markdown list', ascii: 'ASCII tree', unicode: 'Unicode tree' };
 const textInput = (page: Page) => page.getByRole('textbox', { name: 'Folder structure text', exact: true });
 
-function expectAligned(text: string) {
+async function textOptions(page: Page) {
+  const minimumCommentColumn = await page.locator('.fs-app').evaluate(element => parseInt(getComputedStyle(element).getPropertyValue('--fs-text-comment-column'), 10));
+  expect(Number.isSafeInteger(minimumCommentColumn) && minimumCommentColumn > 0).toBe(true);
+  return { minimumCommentColumn };
+}
+
+function expectAligned(text: string, commentColumn: number) {
   const columns = text.split('\n').filter(line => line.includes(' // ')).map(line => line.indexOf(' // '));
   expect(columns).toHaveLength(4);
   expect(new Set(columns).size).toBe(1);
+  expect(columns.every(column => column + 4 === commentColumn)).toBe(true);
 }
 async function chooseFormat(page: Page, format: keyof typeof labels) {
   await page.getByRole('button', { name: 'Change text format', exact: true }).click();
@@ -35,17 +42,19 @@ for (const width of [1440, 390]) {
     for (let pass = 0; pass < 2; pass++) {
       for (const format of formats) {
         await chooseFormat(page, format);
+        const options = await textOptions(page);
         const text = await textInput(page).inputValue();
-        expect(text).toBe(formatText(expected, format, 4));
-        expectAligned(text);
+        expect(text).toBe(formatText(expected, format, 4, options));
+        expectAligned(text, options.minimumCommentColumn);
         if (pass === 0) await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`aligned-${format}-${width}.png`) });
       }
     }
     await page.getByRole('button', { name: 'Text tree', exact: true }).click();
-    await expect(page.locator('.fs-text-preview')).toHaveText(formatTree(expected));
-    expectAligned((await page.locator('.fs-text-preview').textContent())!);
+    const options = await textOptions(page);
+    await expect(page.locator('.fs-text-preview')).toHaveText(formatTree(expected, options));
+    expectAligned((await page.locator('.fs-text-preview').textContent())!, options.minimumCommentColumn);
     await page.getByRole('button', { name: 'Copy tree', exact: true }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(formatTree(expected));
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(formatTree(expected, options));
 
     for (const [format, card, parser] of [
       ['txt', 1, 'plain'], ['ascii', 1, 'ascii'], ['unicode', 1, 'unicode'], ['md', 2, 'markdown'], ['md-tree', 2, 'markdown'],
@@ -57,7 +66,7 @@ for (const width of [1440, 390]) {
       const file = await downloading;
       expect(await file.failure()).toBeNull();
       const text = await readFile((await file.path())!, 'utf8');
-      expectAligned(text);
+      expectAligned(text, options.minimumCommentColumn);
       const content = (value: ReturnType<typeof parseText>) => flatten(value).map(({ node, path }) => ({ name: node.name, comment: node.comment, path }));
       expect(content(parseText(text, parser))).toEqual(content(expected));
     }

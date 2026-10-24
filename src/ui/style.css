@@ -3036,7 +3036,7 @@
 /* Comments use an aligned, capped name column instead of expanding with wide cards.
    Deep levels retain enough room for the minimum name and floating action targets. */
 .fs-app .fs-tree {
-  --fs-comment-start: max(min(55cqw, 288px), calc(192px + var(--fs-comment-depth-inset, 0px)));
+  --fs-comment-start: calc(var(--fs-shared-comment-x, 293px) - 5px);
 }
 .fs-app :is(.fs-tree-item, .fs-inline-placeholder) {
   /* One full-tree column keeps root, nested, selected and collapsed rows aligned. */
@@ -3244,7 +3244,7 @@
 /* Folder previews use the same column principle, independent of label length/badges. */
 .fs-app .fs-preview-canvas { container-type: inline-size; }
 .fs-app .fs-preview-tree {
-  --fs-preview-comment-start: max(min(55cqw, 288px), calc(128px + var(--fs-preview-depth-inset, 0px)));
+  --fs-preview-comment-start: var(--fs-shared-comment-x, 293px);
 }
 .fs-app .fs-preview-row { margin-left: 0; }
 .fs-app .fs-preview-row .fs-preview-branch { left: calc(var(--fs-preview-row-inset, 0px) - 14px); }
@@ -3289,25 +3289,26 @@
   height: calc(var(--fs-editor-body-height) - 48px);
   max-height: calc(var(--fs-editor-body-height) - 48px);
 }
-.fs-app .fs-preview-canvas.is-folders { padding-top: 44px; }
+.fs-app .fs-preview-canvas { padding-top: var(--fs-row-origin); padding-inline: var(--fs-content-inset); }
 .fs-app .fs-preview-root { margin-bottom: 0; }
-.fs-app .fs-preview-row { height: 34px; }
-.fs-app .fs-text-area { padding-top: 14px; }
-.fs-app .fs-text-area textarea { padding-top: 13px; }
-.fs-app .fs-preview-canvas.is-text { padding-top: 28px; }
-.fs-app :is(.fs-text-area textarea, .fs-text-preview) {
+.fs-app .fs-preview-row { height: var(--fs-row-pitch); }
+.fs-app .fs-text-area { padding-top: 14px; padding-inline: var(--fs-content-inset); }
+.fs-app .fs-text-area textarea { padding-top: calc(var(--fs-row-origin) - 15px); padding-left: calc(var(--fs-text-name-x, 53px) - 1px); }
+.fs-app .fs-preview-canvas.is-text { padding-left: calc(var(--fs-content-inset) + var(--fs-text-name-x, 53px)); }
+.fs-app :is(.fs-text-area textarea, .fs-text-preview, .fs-layout-ruler) {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
-  line-height: 24px;
+  line-height: var(--fs-row-pitch);
   tab-size: 4;
 }
 @media (max-width: 800px), (hover: none) and (pointer: coarse) {
-  .fs-app :is(.fs-text-area textarea, .fs-text-preview) { font-size: 16px; }
+  .fs-app :is(.fs-text-area textarea, .fs-text-preview, .fs-layout-ruler) { font-size: 16px; }
 }
 
-/* The independent preview tabs follow the editor's row rhythm too. */
-.fs-app .fs-preview-for-visual .fs-preview-canvas.is-text { padding-top: 44px; }
-.fs-app .fs-preview-for-visual .fs-text-preview { line-height: 34px; }
-.fs-app .fs-preview-for-text .fs-preview-canvas.is-folders { padding-top: 28px; }
-.fs-app .fs-preview-for-text .fs-preview-row { height: 24px; }
-.fs-app .fs-preview-for-text .fs-preview-tree.has-comments .fs-preview-comment { height: 24px; line-height: 24px; }
+/* One spatial contract: mode switches change syntax, never row coordinates. */
+.fs-app { --fs-row-pitch: 34px; --fs-row-origin: 44px; --fs-content-inset: 13px; }
+.fs-app .fs-layout-ruler { position: fixed; left: -10000px; top: 0; visibility: hidden; pointer-events: none; white-space: pre; width: max-content; height: 0; overflow: hidden; }
+.fs-app .fs-visual-area { padding-inline: var(--fs-content-inset); }
+.fs-app .fs-preview-row { gap: var(--fs-tree-name-gap, 8px); }
+.fs-app .fs-preview-folder { flex: 0 0 20px; width: 20px; }
+.fs-app .fs-preview-tree.has-comments .fs-preview-label { max-width: calc(var(--fs-preview-comment-start) - var(--fs-preview-row-inset, 0px) - 56px); }

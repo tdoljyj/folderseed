@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
-import { LIMITS } from '../../src/core';
+import { formatText, LIMITS, parseJSON } from '../../src/core';
 
 test.use({ locale: 'en-US' });
 
@@ -541,7 +541,11 @@ test('keeps syntax-like names created visually unchanged after refresh', async (
   await chooseTextFormat(page, 'plain');
   await expect(formatButton(page)).toHaveText(formatLabels['plain']);
   // Renaming keeps the template's metadata as well as the literal folder punctuation.
-  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue('- Notes // The starting point for your folder structure.\n    ├── Literal');
+  const syntaxState = await page.evaluate(() => ({
+    document: JSON.stringify(JSON.parse(localStorage.getItem('folderseed:draft:v1')!).document),
+    minimumCommentColumn: parseInt(getComputedStyle(document.querySelector('.fs-app')!).getPropertyValue('--fs-text-comment-column'), 10),
+  }));
+  await expect(page.getByRole('textbox', { name: 'Folder structure text' })).toHaveValue(formatText(parseJSON(syntaxState.document), 'plain', 4, { minimumCommentColumn: syntaxState.minimumCommentColumn }));
   await page.evaluate(() => {
     const key = 'folderseed:draft:v1';
     const stored = JSON.parse(localStorage.getItem(key)!);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDocument, flatten, formatASCII, formatFolderLabel, formatIndented, formatMarkdown,
-  formatText, formatTree, LIMITS, parseIndented, parseText, validateDocument,
+  formatText, formatTree, getTextLayout, LIMITS, parseIndented, parseText, validateDocument,
   type DirectoryDocument, type FolderNode,
 } from '../src/core';
 import { reconcileTextSnapshot } from '../src/ui/commentPresentation';
@@ -38,10 +38,10 @@ describe('generated comment columns', () => {
     expect(formatText(document, 'markdown')).toBe(formatMarkdown(document));
     expect(formatFolderLabel(document.root)).toBe('Root // root note');
     expect(formatIndented(document, 4)).toBe([
-      'Root                 // root note',
-      '    Short            // short note',
-      '        Nested       // nested note',
-      '    A longer sibling // sibling note',
+      'Root' + ' '.repeat(25) + '// root note',
+      '    Short' + ' '.repeat(20) + '// short note',
+      '        Nested' + ' '.repeat(15) + '// nested note',
+      '    A longer sibling' + ' '.repeat(9) + '// sibling note',
       '    Without a comment',
     ].join('\n'));
   });
@@ -57,10 +57,10 @@ describe('generated comment columns', () => {
     expect(content(parseIndented(formatTree(document)))).toEqual(content(document));
   });
 
-  it('does not add padding or separators to uncommented rows or widen for their names', () => {
+  it('reserves room for uncommented labels without adding padding or separators to them', () => {
     const document = parseText('Root // note\n    Short // another\n    ' + 'x'.repeat(100), 'plain');
     expect(formatIndented(document, 4).split('\n')).toEqual([
-      'Root      // note', '    Short // another', '    ' + 'x'.repeat(100),
+      'Root' + ' '.repeat(108) + '// note', '    Short' + ' '.repeat(103) + '// another', '    ' + 'x'.repeat(100),
     ]);
     delete document.root.comment;
     delete document.root.children[0].comment;
@@ -80,10 +80,10 @@ describe('generated comment columns', () => {
     for (const format of ['plain', 'ascii', 'unicode'] as const) {
       const line = formatText(document, format, 4).split('\n')[1];
       const prefix = format === 'plain' ? '    ' : format === 'ascii' ? '`-- ' : '└── ';
-      expect(line).toBe(prefix + normalizedName + ' '.repeat(31 - 4 - width) + '// child');
+      expect(line).toBe(prefix + normalizedName + ' '.repeat(37 - 4 - width) + '// child');
     }
     const markdownLine = formatMarkdown(document, 4).split('\n')[1];
-    expect(markdownLine).toBe('    - `' + normalizedName + ' '.repeat(31 - 4 - width) + '// child`');
+    expect(markdownLine).toBe('    - `' + normalizedName + ' '.repeat(37 - 7 - width) + '// child`');
   });
 
   it('includes varying Markdown code delimiters and required padding in the column', () => {
@@ -98,6 +98,46 @@ describe('generated comment columns', () => {
     expect(new Set(asciiColumns(output)).size).toBe(1);
     expect(content(parseText(output, 'markdown'))).toEqual(content(document));
     expect(formatMarkdown(parseText(output, 'markdown'), 4)).toBe(output);
+  });
+
+  it.each([2, 4, 'tabs'] as const)('uses one documented content column across every format with %s indentation', indent => {
+    const document = fixture();
+    const layout = getTextLayout(document, indent);
+    expect(layout).toEqual({ maxPrefixColumns: 25, separatorColumn: 29, commentColumn: 32 });
+    for (const format of formats) {
+      const text = formatText(document, format, indent);
+      expect(asciiColumns(text).every(column => column + 4 === layout.commentColumn)).toBe(true);
+      expect(text.split('\n').filter(line => line.includes(' // ')).every(line => / {4,}\/\/ /u.test(line))).toBe(true);
+    }
+    expect(getTextLayout(document, 4)).toEqual(layout);
+  });
+
+  it('shares a caller-provided minimum column between every formatter', () => {
+    const document = fixture();
+    const options = { minimumCommentColumn: 72 };
+    expect(getTextLayout(document, 4, options.minimumCommentColumn).commentColumn).toBe(72);
+    const output = [formatIndented(document, 4, options), formatMarkdown(document, 4, options), formatASCII(document, options), formatTree(document, options)];
+    for (const text of output) expect(asciiColumns(text).every(column => column + 4 === 72)).toBe(true);
+    for (const format of formats) expect(asciiColumns(formatText(document, format, 4, options)).every(column => column + 4 === 72)).toBe(true);
+    expect(getTextLayout(document, 4, 1)).toEqual(getTextLayout(document));
+  });
+
+  it.each([-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])('rejects invalid minimum column %s', minimum => {
+    expect(() => getTextLayout(fixture(), 4, minimum)).toThrow(/nonnegative safe integer/);
+    expect(() => formatText(fixture(), 'plain', 4, { minimumCommentColumn: minimum })).toThrow(/nonnegative safe integer/);
+  });
+
+  it('caps an enormous requested column while keeping each text format re-importable', () => {
+    const document = fixture();
+    const options = { minimumCommentColumn: Number.MAX_SAFE_INTEGER };
+    const layout = getTextLayout(document, 4, options.minimumCommentColumn);
+    expect(layout.commentColumn).toBeLessThan(options.minimumCommentColumn);
+    for (const format of formats) {
+      const output = formatText(document, format, 4, options);
+      expect(asciiColumns(output).every(column => column + 4 === layout.commentColumn)).toBe(true);
+      expect(new TextEncoder().encode(output + '\n').byteLength).toBeLessThanOrEqual(LIMITS.textBytes);
+      expect(content(parseText(output, format))).toEqual(content(document));
+    }
   });
 
   it.each(formats)('preserves bound localized template identity through %s generation', format => {
@@ -125,6 +165,41 @@ describe('alignment parsing boundaries', () => {
     expect(parseText('A  B        // ', 'plain').root.comment).toBeUndefined();
     for (const invalid of ['Root   ', 'Root\t // note', 'Root\u00a0 // note', 'Root / // note']) {
       expect(() => parseText(invalid, 'plain')).toThrow();
+    }
+  });
+
+  it('handles a maximum-size project containing more backtick runs than a function argument list can hold', () => {
+    const document = createDocument('Root');
+    document.root.comment = '` '.repeat(250);
+    for (let index = 1; index < LIMITS.nodes; index++) document.root.children.push({
+      id: `runs-${index}`, name: `f${index}` + '`a'.repeat(47), comment: '` '.repeat(250), children: [],
+    });
+    const output = formatMarkdown(document, 4);
+    expect(new TextEncoder().encode(output).byteLength).toBeLessThanOrEqual(LIMITS.textBytes);
+    expect(content(parseText(output, 'markdown'))).toEqual(content(document));
+  });
+
+  it('uses safe compact Markdown spans when wide and combining-only names would overflow shared padding', () => {
+    const document = createDocument('界'.repeat(84));
+    document.root.comment = '`'.repeat(500);
+    let parent = document.root;
+    const node = (index: number): FolderNode => ({
+      id: `mixed-${index}`, name: `x${index}` + '\u1ab0'.repeat(83), comment: '`'.repeat(500), children: [],
+    });
+    for (let index = 1; index < LIMITS.depth; index++) {
+      const child = node(index); parent.children.push(child); parent = child;
+    }
+    // A wide deepest label forces substantial padding for high-byte, narrow graphemes.
+    parent.children.push({ id: 'wide-leaf', name: '界'.repeat(84), comment: '`'.repeat(500), children: [] });
+    for (let index = LIMITS.depth + 1; index < LIMITS.nodes; index++) parent.children.push(node(index));
+    const clean = validateDocument(document);
+    const layout = getTextLayout(clean);
+    expect(layout.maxPrefixColumns).toBeLessThan(500);
+    for (const format of formats) {
+      const output = formatText(clean, format, 4);
+      expect(new TextEncoder().encode(output + '\n').byteLength).toBeLessThanOrEqual(LIMITS.textBytes);
+      expect(content(parseText(output, format))).toEqual(content(clean));
+      expect(getTextLayout(clean, 2)).toEqual(layout);
     }
   });
 

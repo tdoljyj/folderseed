@@ -16,6 +16,7 @@ import { resolveTemplateComments } from './templateComments';
 import { finishCommentEdit, presentTextDraft, reconcileTextSnapshot, restoreDraftLocale } from './commentPresentation';
 import { BackgroundTapTracker, EDITOR_BACKGROUND_SELECTOR } from './backgroundTap';
 import { useMobileHeader } from './mobileHeader';
+import { useSharedCommentLayout } from './sharedLayout';
 
 export interface FolderEditorProps {
   initialDocument?: DirectoryDocument;
@@ -43,6 +44,7 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 const AUTO_APPLY_MS = 350;
 const OUTPUT_INDENT = 4;
 interface InitialState {
+  generated: boolean;
   document: DirectoryDocument;
   draft: string | null;
   pending: boolean;
@@ -54,7 +56,7 @@ interface InitialState {
   textLocale: Locale;
 }
 function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false): InitialState {
-  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'plain' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null, textLocale: 'en' as Locale };
+  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'plain' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null, textLocale: 'en' as Locale, generated: false };
   if (initialDocument) return { ...defaults, textFormat: 'plain', document: validateDocument(initialDocument) };
   if (storageKey && typeof window !== 'undefined') {
     let raw: string | null = null;
@@ -75,6 +77,7 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
           textLocale: draft === null ? 'en' : restoreDraftLocale(stored.textLocale),
           pending,
           mode: stored.mode === 'text' || pending ? 'text' : 'visual',
+          generated: stored.generated === true,
           textFormat: restoreTextFormat(stored.textFormat, draft, document, pending, restoredIndent),
           indent: pending ? restoredIndent : 'auto',
         };
@@ -118,6 +121,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const [indent, setIndent] = useState<ParseIndent>(initial.indent);
   const [textDraft, setTextDraft] = useState(initial.draft ?? formatIndented(displayDoc, OUTPUT_INDENT));
   const [textDirty, setTextDirty] = useState(initial.pending);
+  const [textGenerated, setTextGenerated] = useState(initial.draft === null || initial.generated);
   const [textLocale, setTextLocale] = useState<Locale>(initial.textLocale);
   const [composing, setComposing] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('zip');
@@ -158,8 +162,9 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const fileInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const inlineInput = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const sharedLayout = useSharedCommentLayout(displayDoc, appRef);
+  const textLayoutOptions = useMemo(() => ({ minimumCommentColumn: sharedLayout.commentColumn }), [sharedLayout.commentColumn]);
   const rows = useMemo(() => flatten(doc), [doc]);
-  const deepestEditorLevel = Math.max(...rows.map(row => row.depth));
   const lastVisibleFolder = useMemo(() => {
     let node = doc.root;
     while (!collapsed.has(node.id) && node.children.length) node = node.children[node.children.length - 1];
@@ -219,8 +224,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (textFormat !== 'auto') return textFormat;
     try { return detectTextFormat(textDraft); } catch { return 'plain' as const; }
   }, [textDraft, textFormat]);
-  const textPresentation = useMemo(() => presentTextDraft(doc, displayDoc, textDraft, textLocale, locale, textOutputFormat, textDirty, composing, OUTPUT_INDENT), [doc, displayDoc, textDraft, textLocale, locale, textOutputFormat, textDirty, composing]);
-  const visibleTextDraft = textPresentation.text;
+  const textPresentation = useMemo(() => presentTextDraft(doc, displayDoc, textDraft, textLocale, locale, textOutputFormat, textDirty, composing, OUTPUT_INDENT, textLayoutOptions), [doc, displayDoc, textDraft, textLocale, locale, textOutputFormat, textDirty, composing, textLayoutOptions]);
+  const visibleTextDraft = textGenerated && !textDirty && !composing ? formatText(displayDoc, textOutputFormat, OUTPUT_INDENT, textLayoutOptions) : textPresentation.text;
   const visibleTextLocale = textPresentation.locale;
   const parsed = useMemo(() => {
     if (!textDirty || composing) return { document: doc, error: '' };
@@ -268,11 +273,11 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
           recoveryBackedUp.current = true;
         } catch { setSaveState('Autosave paused — unreadable draft preserved'); return; }
       }
-      localStorage.setItem(storageKey, JSON.stringify({ document: JSON.parse(serializeJSON(doc)), draft: textDraft, pending: textDirty, mode, textFormat, indent, textLocale }));
+      localStorage.setItem(storageKey, JSON.stringify({ document: JSON.parse(serializeJSON(doc)), draft: textDraft, pending: textDirty, mode, textFormat, indent, textLocale, generated: textGenerated }));
       draftPersisted.current = true;
       setSaveState('Saved on this device');
     } catch { setSaveState('Draft not saved — copy your text before leaving'); }
-  }, [doc, textDirty, textDraft, storageKey, indent, textFormat, mode, textLocale, initial.recoveryRaw]);
+  }, [doc, textDirty, textDraft, storageKey, indent, textFormat, mode, textLocale, textGenerated, initial.recoveryRaw]);
   useEffect(() => {
     if (!modal) return;
     dialog.current?.showModal();
@@ -301,7 +306,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (outputFormat === 'auto') {
       try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
     }
-    return formatText(resolveTemplateComments(next, t), outputFormat, OUTPUT_INDENT);
+    return formatText(resolveTemplateComments(next, t), outputFormat, OUTPUT_INDENT, textLayoutOptions);
   }
   function replaceEditorText(next: DirectoryDocument) {
     // Programmatic output has a known syntax; pin it rather than guessing from a new folder name.
@@ -310,7 +315,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
       setTextFormat(outputFormat);
     }
-    setTextDraft(editorText(next, outputFormat)); setTextLocale(locale);
+    setTextDraft(editorText(next, outputFormat)); setTextLocale(locale); setTextGenerated(true);
   }
   function commit(next: DirectoryDocument, message?: string) {
     clearDeleteUndo();
@@ -345,7 +350,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     draftPersisted.current = false;
     setSaveState(storageKey ? 'Saving draft…' : 'Kept in this session');
     if (!textDirty) setTextLocale(visibleTextLocale);
-    setTextDraft(value); setTextDirty(true);
+    setTextDraft(value); setTextDirty(true); setTextGenerated(false);
   }
   function revertText() {
     contentRevision.current++;
@@ -358,7 +363,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     const next = flushText();
     if (!next) return;
     setTextFormat(nextFormat);
-    if (nextFormat !== textFormat) { setTextDraft(editorText(next, nextFormat)); setTextLocale(locale); }
+    if (nextFormat !== textFormat) { setTextDraft(editorText(next, nextFormat)); setTextLocale(locale); setTextGenerated(true); }
     setMode('text');
   }
   function historyStep(type: 'undo' | 'redo') {
@@ -667,7 +672,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       const isJSON = lowerName.endsWith('.json');
       const next = isJSON ? parseJSON(text) : parseText(text, importedFormat);
       commit(next, `Imported ${file.name}.`);
-      if (!isJSON) { setTextDraft(text); setTextFormat(restoreTextFormat(importedFormat, text, next, false, 'auto')); setIndent('auto'); }
+      if (!isJSON) { setTextGenerated(false); setTextDraft(text); setTextFormat(restoreTextFormat(importedFormat, text, next, false, 'auto')); setIndent('auto'); }
       clearSelection(); setCollapsed(new Set()); setMode('visual');
     } catch (error) { if (ticket === importTicket.current) notify(errorMessage(error), true); }
   }
@@ -677,7 +682,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (!latest) return;
     setExporting(true);
     try {
-      const result = await createExport(format === 'json' ? latest : resolveTemplateComments(latest, t), format);
+      const result = await createExport(format === 'json' ? latest : resolveTemplateComments(latest, t), format, textLayoutOptions);
       const url = URL.createObjectURL(result.blob);
       const link = document.createElement('a'); link.href = url; link.download = result.filename; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
@@ -688,7 +693,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   async function copyPreview() {
     const latest = flushText();
     if (!latest) return;
-    try { await navigator.clipboard.writeText(formatTree(resolveTemplateComments(latest, t))); notify('Folder tree copied.'); }
+    try { await navigator.clipboard.writeText(formatTree(resolveTemplateComments(latest, t), textLayoutOptions)); notify('Folder tree copied.'); }
     catch { notify('Clipboard access is unavailable. Download Plain text instead.', true); }
   }
   function renderFolder(node: FolderNode, level: number) {
@@ -753,7 +758,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const destinationChildren = rows.find(row => row.node.id === destination)?.node.children.filter(child => child.id !== modalRow?.node.id) ?? [];
   const descendants = modalRow ? new Set(flatten({ version: 1, root: modalRow.node }).map(row => row.node.id)) : new Set<string>();
 
-  return <div className="fs-app" lang={locale} dir={direction} data-theme={theme.resolvedTheme} data-theme-preference={theme.preference} ref={appRef} onKeyDown={handleHistoryKey} onPointerDownCapture={handleBackgroundPointerDown} onPointerMoveCapture={event => backgroundTap.current.move(event)} onPointerUpCapture={handleBackgroundPointerUp} onPointerCancelCapture={() => backgroundTap.current.cancel()} onScrollCapture={() => backgroundTap.current.cancel()} onClick={handleEditorBackgroundClick}>
+  return <div className="fs-app" lang={locale} dir={direction} data-theme={theme.resolvedTheme} data-theme-preference={theme.preference} ref={appRef} style={{ '--fs-shared-comment-x': `${sharedLayout.visualCommentX}px`, '--fs-text-name-x': `${sharedLayout.nameX}px`, '--fs-text-comment-column': sharedLayout.commentColumn } as CSSProperties} onKeyDown={handleHistoryKey} onPointerDownCapture={handleBackgroundPointerDown} onPointerMoveCapture={event => backgroundTap.current.move(event)} onPointerUpCapture={handleBackgroundPointerUp} onPointerCancelCapture={() => backgroundTap.current.cancel()} onScrollCapture={() => backgroundTap.current.cancel()} onClick={handleEditorBackgroundClick}>
+    <span className="fs-layout-ruler" aria-hidden="true">{'0'.repeat(100)}</span>
     <aside className={`fs-sidebar ${mobileHeaderHidden ? 'is-scroll-hidden' : ''}`} ref={sidebarRef}>
       <a className="fs-brand" href="#workspace" aria-label={t("FolderSeed workspace")}><span className="fs-brand-mark"><Icon name="seed" size={26}/></span><span><span className="fs-brand-name">FolderSeed</span><span className="fs-brand-subtitle">{t("A little structure goes a long way.")}</span></span></a>
       <div className="fs-sidebar-navigation">
@@ -775,7 +781,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
             <div className="fs-editor-tabs"><button type="button" aria-pressed={mode === 'visual'} aria-controls="visual-editor" onClick={() => { if (flushText()) setMode('visual'); }}><Icon name="tree" size={16}/>{t("Visual editor")}</button></div>
             <FormatSwitch value={textFormat === 'auto' ? 'plain' : textFormat} active={mode === 'text'} disabled={composing} onActivate={() => { if (flushText()) setMode('text'); }} onSelect={changeTextFormat}/>
           </div>
-          {mode === 'visual' ? <div id="visual-editor" role="region" aria-label={t("Visual editor")} className="fs-visual-area" ref={visualAreaRef} style={{ '--fs-comment-depth-inset': treeInset(deepestEditorLevel) } as CSSProperties}>
+          {mode === 'visual' ? <div id="visual-editor" role="region" aria-label={t("Visual editor")} className="fs-visual-area" ref={visualAreaRef}>
             <div className="fs-tree-help"><span>{t(rows.length === 1 ? "{count} folder" : "{count} folders", { count: rows.length })}</span>{inlineEdit?.kind === 'comment' && inlineEdit.error ? <span className="fs-comment-error" id={inlineErrorId} role="alert" title={translateError(inlineEdit.error)}>{translateError(inlineEdit.error)}</span> : <span aria-live="polite" title={translateError(dropHint)}>{translateError(dropHint)}</span>}</div>
             <ul className="fs-tree" aria-label={t("Folder list")} ref={treeRef}
               onDragOver={event => { if (isTrailingSpace(event)) dragOver(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
@@ -797,6 +803,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
             <div className={`fs-selection-summary ${selected ? '' : 'is-empty'}`}>{selected && <><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><button type="button" className="fs-advanced-move" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={14}/>{t("Move")}</button></>}</div>
           </div> : <div id="text-editor" role="region" aria-label={t("Text editor")} className="fs-text-area">
             <textarea aria-label={t("Folder structure text")} spellCheck={false} value={visibleTextDraft}
+              onFocus={() => { if (textGenerated) { setTextDraft(visibleTextDraft); setTextLocale(visibleTextLocale); setTextGenerated(false); } }}
               onChange={event => changeText(event.target.value)}
               onCompositionStart={event => { changeText(event.currentTarget.value); composingRef.current = true; setComposing(true); }}
               onCompositionEnd={event => { composingRef.current = false; setComposing(false); changeText(event.currentTarget.value); }}
@@ -817,7 +824,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
           </div>}
 
         </section>
-        <section className={`fs-panel fs-preview fs-preview-for-${mode}`} aria-label={t("Live preview")}><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>{t("See it take shape")}</h2></div><span className={`fs-live-badge ${blockedDraft && mode === 'text' ? 'is-paused' : ''}`}><span/>{blockedDraft && mode === 'text' ? t('LAST VALID') : t('LIVE PREVIEW')}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>{t("Folders")}</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>{t("Text tree")}</button></div><button type="button" className="fs-copy" disabled={blockedDraft} onClick={() => void copyPreview()}><Icon name="copy" size={15}/>{t("Copy tree")}</button></div><div className={`fs-preview-canvas ${previewMode === 'text' ? 'is-text' : 'is-folders'}`}>{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc)}</pre> : <div className={`fs-preview-tree ${previewRows.some(row => row.node.comment) ? 'has-comments' : ''}`} style={{ '--fs-preview-depth-inset': `${(depth - 1) * 24}px` } as CSSProperties}>{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ '--fs-preview-row-inset': `${depth * 24}px`, paddingLeft: depth * 24 } as CSSProperties}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span className="fs-preview-label"><span className="fs-preview-name" title={node.name}>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">{t("YOUR ROOT FOLDER")}</span>}</span>{node.comment && <span className="fs-preview-comment" title={node.comment} dir="auto">{node.comment}</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span>{t(previewRows.length === 1 ? "{count} folder" : "{count} folders", { count: previewRows.length })}</span><span>{t(depth === 1 ? "{count} level" : "{count} levels", { count: depth })}</span><span><Icon name="check" size={14}/>{t("No files, just possibilities")}</span></div></section>
+        <section className="fs-panel fs-preview" aria-label={t("Live preview")}><div className="fs-panel-heading"><div><span className="fs-step">02</span><h2>{t("See it take shape")}</h2></div><span className={`fs-live-badge ${blockedDraft && mode === 'text' ? 'is-paused' : ''}`}><span/>{blockedDraft && mode === 'text' ? t('LAST VALID') : t('LIVE PREVIEW')}</span></div><div className="fs-preview-toolbar"><div className="fs-segmented"><button type="button" aria-pressed={previewMode === 'folders'} onClick={() => setPreviewMode('folders')}>{t("Folders")}</button><button type="button" aria-pressed={previewMode === 'text'} onClick={() => setPreviewMode('text')}>{t("Text tree")}</button></div><button type="button" className="fs-copy" disabled={blockedDraft} onClick={() => void copyPreview()}><Icon name="copy" size={15}/>{t("Copy tree")}</button></div><div className={`fs-preview-canvas ${previewMode === 'text' ? 'is-text' : 'is-folders'}`}>{previewMode === 'text' ? <pre className="fs-text-preview">{formatTree(previewDoc, textLayoutOptions)}</pre> : <div className={`fs-preview-tree ${previewRows.some(row => row.node.comment) ? 'has-comments' : ''}`}>{previewRows.map(({ node, depth }) => <div className={`fs-preview-row ${depth === 0 ? 'fs-preview-root' : ''}`} key={node.id} style={{ '--fs-preview-row-inset': `calc(${previewDoc.root.children.length ? 25 : 1}px + ${treeInset(depth)} + ${depth > 0 ? 'var(--fs-tree-grip-size) + var(--fs-tree-grip-gap)' : '0px'})`, paddingLeft: `var(--fs-preview-row-inset)` } as CSSProperties}><span className="fs-preview-branch"/><span className="fs-preview-folder"><Icon name="folder" size={depth === 0 ? 23 : 20}/></span><span className="fs-preview-label"><span className="fs-preview-name" title={node.name}>{node.name}</span>{depth === 0 && <span className="fs-preview-root-badge">{t("YOUR ROOT FOLDER")}</span>}</span>{node.comment && <span className="fs-preview-comment" title={node.comment} dir="auto">{node.comment}</span>}</div>)}</div>}</div><div className="fs-preview-stats"><span>{t(previewRows.length === 1 ? "{count} folder" : "{count} folders", { count: previewRows.length })}</span><span>{t(depth === 1 ? "{count} level" : "{count} levels", { count: depth })}</span><span><Icon name="check" size={14}/>{t("No files, just possibilities")}</span></div></section>
       </div>
       <section className="fs-panel fs-export" aria-label={t("Export structure")}><div className="fs-export-heading"><div><span className="fs-step">03</span><h2>{t("Take it with you")}</h2></div><p>{t("A real folder structure, or a picture of the plan. Your choice.")}</p></div><div className="fs-export-options" role="radiogroup" aria-label={t("Export format")}>{formats.map(item => <button key={item.id} type="button" role="radio" aria-checked={activeExportCard === item.id} onClick={() => setFormat(item.id)} className={activeExportCard === item.id ? 'is-active' : ''}><span className="fs-format-icon"><Icon name={item.icon} size={20}/></span><strong>{t(item.title)}</strong><small>{t(item.description)}</small><span className="fs-radio-dot"/></button>)}</div>
         {activeExportCard === 'txt' && <div className="fs-export-subtype"><label htmlFor="text-export-style">{t("Text export style")}</label><select id="text-export-style" value={format} onChange={event => setFormat(event.target.value as ExportFormat)}><option value="txt">{t("Indented text")}</option><option value="ascii">{t("ASCII tree")}</option><option value="unicode">{t("Unicode tree")}</option></select></div>}

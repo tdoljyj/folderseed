@@ -8,6 +8,7 @@ import {
   type FolderNode,
   type Indent,
   type TextFormat,
+  type TextFormatOptions,
 } from '../core';
 import { isLanguagePreference, type Locale } from './i18n';
 
@@ -66,9 +67,10 @@ export function presentTextDraft(
   dirty: boolean,
   composing: boolean,
   indent: Indent = 4,
+  options: TextFormatOptions = {},
 ): { text: string; locale: Locale } {
   const localize = hasCommentBindings(canonical) && !dirty && !composing && authoredLocale !== currentLocale;
   return localize
-    ? { text: formatText(projection, format, indent), locale: currentLocale }
+    ? { text: formatText(projection, format, indent, options), locale: currentLocale }
     : { text: draft, locale: authoredLocale };
 }

@@ -451,23 +451,23 @@ for (const { width, theme, locale } of [
   { width: 768, theme: 'dark', locale: 'en' },
   { width: 390, theme: 'light', locale: 'en' },
 ]) {
-  test(`caps the aligned comment column without crowding names or actions at ${width}px`, async ({ page }, testInfo) => {
+  test(`grows the shared comment column for long names without crowding names or actions at ${width}px`, async ({ page }, testInfo) => {
     const longName = 'Long folder name that remains fully accessible when edited rather than reserving a wide column';
     const note = 'Project references and working notes 我的说明';
     await load(page, locale, width, theme);
-    await importFile(page, `Project // ${note}\n    Planning // ${note}\n        Before // ${note}\n        Working // ${note}\n            Child // ${note}\n        After // ${note}\n    ${longName} // ${note}`);
-    const column = await page.locator('.fs-visual-area').evaluate(element => {
-      const style = getComputedStyle(element);
-      return .55 * (element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
-    });
+    const structure = (lastName: string) => `Project // ${note}\n    Planning // ${note}\n        Before // ${note}\n        Working // ${note}\n            Child // ${note}\n        After // ${note}\n    ${lastName} // ${note}`;
+    await importFile(page, structure('Brief'));
+    const shortColumn = (await geometry(page, 'Project')).comment.x;
+    await importFile(page, structure(longName));
     const root = await geometry(page, 'Project');
-    expect(root.comment.x).toBeCloseTo(Math.max(Math.min(column, 288), 192 + 2 * (width <= 600 ? 14 : 22)), 1);
+    // A canonical column follows the actual document envelope, not a 288px cap.
+    if (width > 800) expect(root.comment.x).toBeGreaterThan(shortColumn + 40);
+    else expect(root.comment.x).toBeCloseTo(shortColumn, 1);
     const commentStarts = await page.locator('.fs-folder-comment').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
     for (const start of commentStarts) expect(start).toBeCloseTo(commentStarts[0], 1);
     const previewStarts = await page.locator('.fs-preview-comment').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
     for (const start of previewStarts) expect(start).toBeCloseTo(previewStarts[0], 1);
     await page.locator('.fs-preview').screenshot({ path: testInfo.outputPath(`aligned-preview-comments-${width}-${theme}.png`) });
-    if (width === 1920) expect(column - root.comment.x).toBeGreaterThan(50);
     for (const name of ['Project', 'Planning', 'Working', longName]) {
       await clearSelection(page);
       // The preceding preview screenshot scrolls stacked mobile panels. Center
@@ -475,7 +475,8 @@ for (const { width, theme, locale } of [
       await folder(page, name).evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
       const before = await geometry(page, name);
       expect(before.comment.x).toBeCloseTo(root.comment.x, 1);
-      if (name !== longName) {
+      await expect(folder(page, name)).toHaveAttribute('title', name);
+      if (width > 800 && name !== longName) {
         expect(await folder(page, name).locator('.fs-folder-name').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       }
       await select(page, name);
@@ -500,7 +501,9 @@ for (const { width, theme, locale } of [
     expect((await geometry(page, 'Project')).comment.x).toBeCloseTo(root.comment.x, 1);
     await folder(page, 'Planning').locator('..').locator('.fs-disclosure').click();
     await expect(folder(page, longName)).toHaveAttribute('title', longName);
-    expect(await folder(page, longName).locator('.fs-folder-name').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+    // Mobile keeps comments visible by ellipsizing names; desktop can grow the
+    // shared column. Both must retain the full value when editing.
+    if (width <= 800) expect(await folder(page, longName).locator('.fs-folder-name').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
     await select(page, longName);
     await page.locator('.fs-context-actions [data-action="rename"]').click();
     await expect(page.locator('.fs-inline-name')).toHaveValue(longName);

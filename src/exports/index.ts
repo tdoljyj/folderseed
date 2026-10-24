@@ -6,6 +6,7 @@ import {
   serializeJSON,
   validateDocument,
   type DirectoryDocument,
+  type TextFormatOptions,
 } from '../core';
 
 export type ExportFormat = 'zip' | 'txt' | 'md' | 'md-tree' | 'ascii' | 'unicode' | 'json' | 'svg' | 'png';
@@ -150,7 +151,7 @@ function downloadFilename(name: string, format: ExportFormat): string {
 }
 
 /** No filesystem access: all exports are constructed in memory in the caller's browser. */
-export async function createExport(input: DirectoryDocument, format: ExportFormat): Promise<ExportResult> {
+export async function createExport(input: DirectoryDocument, format: ExportFormat, options: TextFormatOptions = {}): Promise<ExportResult> {
   const document = validateDocument(input);
   const filename = downloadFilename(document.root.name, format);
   switch (format) {
@@ -164,14 +165,14 @@ export async function createExport(input: DirectoryDocument, format: ExportForma
       return { filename, blob: new Blob([new Uint8Array(bytes)], { type: 'application/zip' }) };
     }
     case 'txt':
-      return { filename, blob: new Blob([formatText(document, 'plain', 4) + '\n'], { type: 'text/plain;charset=utf-8' }) };
+      return { filename, blob: new Blob([formatText(document, 'plain', 4, options) + '\n'], { type: 'text/plain;charset=utf-8' }) };
     case 'md':
-      return { filename, blob: new Blob([formatText(document, 'markdown', 4) + '\n'], { type: 'text/markdown;charset=utf-8' }) };
+      return { filename, blob: new Blob([formatText(document, 'markdown', 4, options) + '\n'], { type: 'text/markdown;charset=utf-8' }) };
     case 'ascii':
     case 'unicode':
-      return { filename, blob: new Blob([formatText(document, format) + '\n'], { type: 'text/plain;charset=utf-8' }) };
+      return { filename, blob: new Blob([formatText(document, format, 4, options) + '\n'], { type: 'text/plain;charset=utf-8' }) };
     case 'md-tree': {
-      const tree = formatTree(document);
+      const tree = formatTree(document, options);
       const longestRun = Math.max(0, ...(tree.match(/`+/g) ?? []).map((run) => run.length));
       const fence = '`'.repeat(Math.max(3, longestRun + 1));
       return { filename, blob: new Blob([`${fence}text\n${tree}\n${fence}\n`], { type: 'text/markdown;charset=utf-8' }) };

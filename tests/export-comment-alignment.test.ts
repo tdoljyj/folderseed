@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { unzipSync } from 'fflate';
-import { createDocument, flatten, parseJSON, serializeJSON, type DirectoryDocument } from '../src/core';
+import { createDocument, flatten, formatText, formatTree, getTextLayout, parseJSON, parseText, serializeJSON, type DirectoryDocument } from '../src/core';
 import { createExport, renderSVG } from '../src/exports';
 
 function fixture(): DirectoryDocument {
@@ -63,6 +63,34 @@ afterEach(() => {
 });
 
 describe('aligned image export columns', () => {
+  it.each(['txt', 'md', 'ascii', 'unicode', 'md-tree'] as const)('%s keeps the caller’s shared generated-text column without rewriting literal metadata', async format => {
+    const input = fixture();
+    const before = serializeJSON(input);
+    const options = { minimumCommentColumn: 96 };
+    const text = await (await createExport(input, format, options)).blob.text();
+    const syntax = format === 'txt' ? 'plain' : format === 'md' ? 'markdown' : format === 'md-tree' ? 'unicode' : format;
+    const expected = format === 'md-tree' ? `\`\`\`text\n${formatTree(input, options)}\n\`\`\`\n` : `${formatText(input, syntax, 4, options)}\n`;
+    expect(text).toBe(expected);
+    expect(getTextLayout(input, 4, options.minimumCommentColumn).commentColumn).toBe(96);
+    const parsed = parseText(text, format === 'md-tree' ? 'markdown' : syntax);
+    expect(flatten(parsed).map(({ node, path }) => ({ path, comment: node.comment })))
+      .toEqual(flatten(input).map(({ node, path }) => ({ path, comment: node.comment })));
+    expect(serializeJSON(input)).toBe(before);
+  });
+
+  it('text layout options leave JSON bindings, ZIP entries and vector geometry unchanged', async () => {
+    const input = fixture();
+    for (const format of ['json', 'svg'] as const) {
+      const plain = await createExport(input, format);
+      const aligned = await createExport(input, format, { minimumCommentColumn: 96 });
+      expect(new Uint8Array(await aligned.blob.arrayBuffer())).toEqual(new Uint8Array(await plain.blob.arrayBuffer()));
+      expect(aligned.filename).toBe(plain.filename);
+    }
+    const zip = await createExport(input, 'zip');
+    const alignedZIP = await createExport(input, 'zip', { minimumCommentColumn: 96 });
+    expect(unzipSync(new Uint8Array(await alignedZIP.blob.arrayBuffer()))).toEqual(unzipSync(new Uint8Array(await zip.blob.arrayBuffer())));
+  });
+
   it('uses one explicit comment X across root, siblings and descendants without changing row anchors or text', () => {
     const input = fixture();
     const before = serializeJSON(input);

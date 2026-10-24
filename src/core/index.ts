@@ -446,6 +446,7 @@ export function parseText(text: string, format: TextFormat = 'auto', indent: Par
 
 interface TextOutputLine {
   beforeComment: string;
+  beforeColumns: number;
   comment?: string;
   afterComment?: string;
 }
@@ -495,52 +496,125 @@ function textColumns(text: string): number {
   return columns;
 }
 
-/** Align generated comment separators only; raw drafts and uncommented labels are untouched. */
-function formatAlignedLines(lines: TextOutputLine[]): string {
-  const widths = lines.map(line => line.comment ? textColumns(line.beforeComment) : 0);
-  const commentColumn = Math.max(0, ...widths) + 1;
-  return lines.map((line, index) => line.beforeComment
-    + (line.comment ? `${' '.repeat(commentColumn - widths[index])}// ${line.comment}` : '')
+export interface TextFormatOptions {
+  /** Preferred zero-based cell for comment content, bounded by the text import budget. */
+  minimumCommentColumn?: number;
+}
+
+export interface TextLayout {
+  /** Widest name/syntax prefix across every generated format, including uncommented labels. */
+  maxPrefixColumns: number;
+  /** Zero-based cell containing the first slash of the comment separator. */
+  separatorColumn: number;
+  /** Zero-based cell containing the first character of literal comment content. */
+  commentColumn: number;
+}
+
+type TextOutputLines = Record<ExplicitTextFormat, TextOutputLine[]>;
+
+function markdownLine(node: FolderNode, depth: number, unit: string, compact: boolean, nameColumns: number): TextOutputLine {
+  const label = formatFolderLabel(node);
+  const runs = new Set((label.match(/`+/g) ?? []).map(run => run.length));
+  let length = Math.max(0, ...runs) + 1;
+  // CommonMark requires a delimiter absent from the content's run lengths, not
+  // necessarily longer than every run. Use compact quoting only near the size cap.
+  if (compact) { length = 1; while (runs.has(length)) length++; }
+  const delimiter = '`'.repeat(length);
+  const padding = label.startsWith('`') || label.endsWith('`') ? ' ' : '';
+  return { beforeComment: `${unit.repeat(depth)}- ${delimiter}${padding}${node.name}`,
+    beforeColumns: depth * (unit === '\t' ? 4 : unit.length) + 2 + delimiter.length + padding.length + nameColumns,
+    comment: node.comment, afterComment: `${padding}${delimiter}` };
+}
+
+function textOutputLines(rows: FlatFolder[], indent: Indent, compact: boolean, nameColumns: Map<string, number>): TextOutputLines {
+  const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
+  const result: TextOutputLines = {
+    plain: rows.map(({ node, depth }) => ({ beforeComment: `${unit.repeat(depth)}${node.name}`,
+      beforeColumns: depth * (indent === 'tabs' ? 4 : indent) + nameColumns.get(node.id)!, comment: node.comment })),
+    markdown: rows.map(({ node, depth }) => markdownLine(node, depth, unit, compact, nameColumns.get(node.id)!)),
+    ascii: [], unicode: [],
+  };
+  for (const format of ['ascii', 'unicode'] as const) {
+    const root = rows[0].node;
+    result[format].push({ beforeComment: root.name, beforeColumns: nameColumns.get(root.id)!, comment: root.comment });
+    function visit(node: FolderNode, prefix: string): void {
+      node.children.forEach((child, index) => {
+        const last = index === node.children.length - 1;
+        const branch = format === 'ascii' ? last ? '`-- ' : '|-- ' : last ? '└── ' : '├── ';
+        result[format].push({ beforeComment: `${prefix}${branch}${child.name}`,
+          beforeColumns: prefix.length + 4 + nameColumns.get(child.id)!, comment: child.comment });
+        visit(child, `${prefix}${last ? '    ' : format === 'ascii' ? '|   ' : '│   '}`);
+      });
+    }
+    visit(root, '');
+  }
+  return result;
+}
+
+function createTextLayout(doc: DirectoryDocument, indent: Indent, minimumCommentColumn: number): { layout: TextLayout; lines: TextOutputLines } {
+  if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
+  if (!Number.isSafeInteger(minimumCommentColumn) || minimumCommentColumn < 0) {
+    fail('INVALID_TEXT_LAYOUT', 'The minimum comment column must be a nonnegative safe integer.');
+  }
+  const rows = flatten(doc);
+  const nameColumns = new Map(rows.map(({ node }) => [node.id, textColumns(node.name)]));
+  const encoder = new TextEncoder();
+  // Reserve newline and matching Markdown-tree fences as well as the bare text.
+  const longestRun = rows.reduce((maximum, { node }) => Math.max(maximum, ...(formatFolderLabel(node).match(/`+/g) ?? []).map(run => run.length)), 0);
+  const budget = LIMITS.textBytes - 2 * Math.max(3, longestRun + 1) - 16;
+  function measure(compact: boolean) {
+    const canonicalLines = textOutputLines(rows, 4, compact, nameColumns);
+    const lines = indent === 4 ? canonicalLines : textOutputLines(rows, indent, compact, nameColumns);
+    // A four-cell envelope also covers legacy two-space output. Standalone tree
+    // helpers and all indent choices therefore share one canonical comment column.
+    const maxPrefixColumns = Math.max(0, ...Object.values(canonicalLines).flat()
+      .map(line => line.beforeColumns + (line.comment ? 0 : (line.afterComment ?? '').length)));
+    let maximumSeparatorColumn = Number.MAX_SAFE_INTEGER;
+    for (const output of Object.values(canonicalLines)) {
+      let baseBytes = Math.max(0, output.length - 1), annotated = 0, occupiedColumns = 0;
+      for (const line of output) {
+        baseBytes += encoder.encode(line.beforeComment + (line.afterComment ?? '') + (line.comment ? `// ${line.comment}` : '')).byteLength;
+        if (line.comment) { annotated++; occupiedColumns += line.beforeColumns; }
+      }
+      if (annotated) maximumSeparatorColumn = Math.min(maximumSeparatorColumn, Math.floor((budget - baseBytes + occupiedColumns) / annotated));
+    }
+    return { lines, maxPrefixColumns, maximumSeparatorColumn };
+  }
+  let measured = measure(false);
+  if (measured.maxPrefixColumns + 4 > measured.maximumSeparatorColumn) measured = measure(true);
+  const separatorColumn = Math.min(measured.maximumSeparatorColumn, Math.max(measured.maxPrefixColumns + 4, minimumCommentColumn - 3));
+  // With compact spans, the model's existing name/comment/node limits leave ample
+  // room for the shared column; do not silently shorten literal user content.
+  if (separatorColumn < measured.maxPrefixColumns + 4) fail('TEXT_TOO_LARGE', `Input cannot exceed ${LIMITS.textBytes / 1_000_000} MB.`);
+  return { layout: { maxPrefixColumns: measured.maxPrefixColumns, separatorColumn, commentColumn: separatorColumn + 3 }, lines: measured.lines };
+}
+
+/** One shared comment-content column for plain, ASCII, Unicode, and Markdown text. */
+export function getTextLayout(doc: DirectoryDocument, indent: Indent = 4, minimumCommentColumn = 0): TextLayout {
+  return createTextLayout(doc, indent, minimumCommentColumn).layout;
+}
+
+/** Align generated output only; raw drafts and uncommented labels are untouched. */
+function formatAlignedLines(lines: TextOutputLine[], layout: TextLayout): string {
+  return lines.map(line => line.beforeComment
+    + (line.comment ? `${' '.repeat(layout.separatorColumn - line.beforeColumns)}// ${line.comment}` : '')
     + (line.afterComment ?? '')).join('\n');
 }
 
 /** Nested Markdown lists with whole-label code spans, safe for punctuation and backticks. */
-export function formatMarkdown(doc: DirectoryDocument, indent: Indent = 2): string {
-  if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
-  const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
-  return formatAlignedLines(flatten(doc).map(({ node, depth }) => {
-    const label = formatFolderLabel(node);
-    const longestRun = Math.max(0, ...(label.match(/`+/g) ?? []).map(run => run.length));
-    const delimiter = '`'.repeat(longestRun + 1);
-    const padding = label.startsWith('`') || label.endsWith('`') ? ' ' : '';
-    return { beforeComment: `${unit.repeat(depth)}- ${delimiter}${padding}${node.name}`, comment: node.comment, afterComment: `${padding}${delimiter}` };
-  }));
+export function formatMarkdown(doc: DirectoryDocument, indent: Indent = 2, options: TextFormatOptions = {}): string {
+  return formatText(doc, 'markdown', indent, options);
 }
 
 /** Four-column ASCII tree using |--, `--, and | continuation guides. */
-export function formatASCII(doc: DirectoryDocument): string {
-  const { root } = validateDocument(doc);
-  const lines: TextOutputLine[] = [{ beforeComment: root.name, comment: root.comment }];
-  function visit(node: FolderNode, prefix: string): void {
-    node.children.forEach((child, index) => {
-      const last = index === node.children.length - 1;
-      lines.push({ beforeComment: `${prefix}${last ? '`-- ' : '|-- '}${child.name}`, comment: child.comment });
-      visit(child, `${prefix}${last ? '    ' : '|   '}`);
-    });
-  }
-  visit(root, '');
-  return formatAlignedLines(lines);
+export function formatASCII(doc: DirectoryDocument, options: TextFormatOptions = {}): string {
+  return formatText(doc, 'ascii', 4, options);
 }
 
-export function formatText(doc: DirectoryDocument, format: ExplicitTextFormat = 'plain', indent: Indent = 2): string {
-  if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
-  switch (format) {
-    case 'plain': return formatIndented(doc, indent);
-    case 'markdown': return formatMarkdown(doc, indent);
-    case 'ascii': return formatASCII(doc);
-    case 'unicode': return formatTree(doc);
-    default: return fail('INVALID_FORMAT', 'Choose plain, markdown, ascii, or unicode for text output.');
-  }
+export function formatText(doc: DirectoryDocument, format: ExplicitTextFormat = 'plain', indent: Indent = 2, options: TextFormatOptions = {}): string {
+  if (!['plain', 'markdown', 'ascii', 'unicode'].includes(format)) fail('INVALID_FORMAT', 'Choose plain, markdown, ascii, or unicode for text output.');
+  const { layout, lines } = createTextLayout(doc, indent, options.minimumCommentColumn ?? 0);
+  return formatAlignedLines(lines[format], layout);
 }
 
 export function flatten(doc: DirectoryDocument): FlatFolder[] {
@@ -554,26 +628,12 @@ export function flatten(doc: DirectoryDocument): FlatFolder[] {
   return result;
 }
 
-export function formatIndented(doc: DirectoryDocument, indent: Indent = 2): string {
-  if (![2, 4, 'tabs'].includes(indent)) fail('INVALID_INDENT', 'Choose 2 spaces, 4 spaces, or tabs for indentation.');
-  const unit = indent === 'tabs' ? '\t' : ' '.repeat(indent);
-  return formatAlignedLines(flatten(doc).map(({ node, depth }) => ({
-    beforeComment: `${unit.repeat(depth)}${node.name}`, comment: node.comment,
-  })));
+export function formatIndented(doc: DirectoryDocument, indent: Indent = 2, options: TextFormatOptions = {}): string {
+  return formatText(doc, 'plain', indent, options);
 }
 
-export function formatTree(doc: DirectoryDocument): string {
-  const { root } = validateDocument(doc);
-  const lines: TextOutputLine[] = [{ beforeComment: root.name, comment: root.comment }];
-  function visit(node: FolderNode, prefix: string): void {
-    node.children.forEach((child, index) => {
-      const last = index === node.children.length - 1;
-      lines.push({ beforeComment: `${prefix}${last ? '└── ' : '├── '}${child.name}`, comment: child.comment });
-      visit(child, `${prefix}${last ? '    ' : '│   '}`);
-    });
-  }
-  visit(root, '');
-  return formatAlignedLines(lines);
+export function formatTree(doc: DirectoryDocument, options: TextFormatOptions = {}): string {
+  return formatText(doc, 'unicode', 4, options);
 }
 
 function locate(root: FolderNode, id: string, parent: FolderNode | null = null): { node: FolderNode; parent: FolderNode | null } | undefined {

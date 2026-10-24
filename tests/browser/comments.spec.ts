@@ -470,6 +470,9 @@ for (const { width, theme, locale } of [
     if (width === 1920) expect(column - root.comment.x).toBeGreaterThan(50);
     for (const name of ['Project', 'Planning', 'Working', longName]) {
       await clearSelection(page);
+      // The preceding preview screenshot scrolls stacked mobile panels. Center
+      // the target before testing controls that deliberately float above its row.
+      await folder(page, name).evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
       const before = await geometry(page, name);
       expect(before.comment.x).toBeCloseTo(root.comment.x, 1);
       if (name !== longName) {

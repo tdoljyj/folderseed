@@ -75,6 +75,14 @@ describe('complete runtime language catalogs', () => {
     }
     expect(t('Use // after a folder name for a single-line comment.')).toContain('//');
   });
+  it.each(locales)('%s translates template-binding warnings and schema validation', locale => {
+    const t = createTranslator(locale);
+    for (const key of ['Text formats are localized snapshots.', 'Changing text content makes template comments custom.', 'Comments from older projects stay as saved.', 'Template comment bindings need a valid source, key, and nonempty fallback comment.', 'Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.']) {
+      expect(Object.hasOwn(catalogs[locale], key), key).toBe(true);
+      expect(createErrorTranslator(locale)(key), key).toBe(catalogs[locale][key]);
+      if (locale !== 'en') expect(t(key), key).not.toBe(key);
+    }
+  });
   it('falls back to unknown English source phrases without exposing object prototype values', () => {
     const t = createTranslator('fr');
     expect(t('Future feature {count}', { count: 2 })).toBe('Future feature 2');

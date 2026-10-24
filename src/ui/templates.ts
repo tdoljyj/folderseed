@@ -1,68 +1,95 @@
-import { parseIndented, validateDocument, type FolderNode } from '../core';
+import { createDocument, validateDocument, type FolderNode } from '../core';
 import type { Translator } from './i18n';
+import { templateCommentMessages, type TemplateCommentKey } from './templateComments';
 
-export const templates = [
+interface TemplateFolder {
+  name: string;
+  commentKey: TemplateCommentKey;
+  children?: readonly TemplateFolder[];
+}
+
+const definitions = [
   {
     id: 'creative', name: 'Creative project', description: 'From first spark to final delivery', icon: 'spark',
-    text: 'My creative project\n  01 Inspiration\n    References\n    Moodboards\n  02 Work in progress\n    Drafts\n    Assets\n  03 Final delivery\n    Exports\n    Archive',
-    comments: [
-      'Project ideas, work in progress, and final deliveries.',
-      'Collect ideas and visual direction.',
-      'Examples and research to guide the project.',
-      'Colors, styles, and visual inspiration.',
-      'Keep unfinished work together.',
-      'Early versions and experiments.',
-      'Materials used to create the project.',
-      'Approved work ready to share.',
-      'Finished files in delivery formats.',
-      'Past versions kept for reference.',
-    ],
+    root: { name: 'My creative project', commentKey: 'creative.root', children: [
+      { name: '01 Inspiration', commentKey: 'creative.inspiration', children: [
+        { name: 'References', commentKey: 'creative.references' },
+        { name: 'Moodboards', commentKey: 'creative.moodboards' },
+      ] },
+      { name: '02 Work in progress', commentKey: 'creative.work', children: [
+        { name: 'Drafts', commentKey: 'creative.drafts' },
+        { name: 'Assets', commentKey: 'creative.assets' },
+      ] },
+      { name: '03 Final delivery', commentKey: 'creative.delivery', children: [
+        { name: 'Exports', commentKey: 'creative.exports' },
+        { name: 'Archive', commentKey: 'creative.archive' },
+      ] },
+    ] },
   },
   {
     id: 'personal', name: 'Everyday life', description: 'A home for the everyday', icon: 'home',
-    text: 'My space\n  Documents\n    Personal\n    Household\n  Photos\n    This year\n  Projects\n  Archive',
-    comments: [
-      'Organize documents, photos, and everyday projects.',
-      'Important records and paperwork.',
-      'Personal records and private documents.',
-      'Home records, bills, and maintenance.',
-      'Photo collections and memories.',
-      'Photos from the current year.',
-      'Personal projects and hobbies.',
-      'Past versions kept for reference.',
-    ],
+    root: { name: 'My space', commentKey: 'personal.root', children: [
+      { name: 'Documents', commentKey: 'personal.documents', children: [
+        { name: 'Personal', commentKey: 'personal.records' },
+        { name: 'Household', commentKey: 'personal.household' },
+      ] },
+      { name: 'Photos', commentKey: 'personal.photos', children: [
+        { name: 'This year', commentKey: 'personal.current-year' },
+      ] },
+      { name: 'Projects', commentKey: 'personal.projects' },
+      { name: 'Archive', commentKey: 'personal.archive' },
+    ] },
   },
   {
     id: 'web', name: 'Web project', description: 'A simple starting structure', icon: 'code',
-    text: 'My website\n  src\n    components\n    styles\n    utils\n  public\n    images\n    fonts\n  docs\n  tests',
-    comments: [
-      'Source code, public assets, documentation, and tests.',
-      'Application source code.',
-      'Reusable interface components.',
-      'Shared styles and design rules.',
-      'Small reusable helper functions.',
-      'Assets served directly to visitors.',
-      'Images used by the website.',
-      'Font files used by the website.',
-      'Project notes and usage guides.',
-      'Automated checks for project behavior.',
-    ],
+    root: { name: 'My website', commentKey: 'web.root', children: [
+      { name: 'src', commentKey: 'web.source', children: [
+        { name: 'components', commentKey: 'web.components' },
+        { name: 'styles', commentKey: 'web.styles' },
+        { name: 'utils', commentKey: 'web.utilities' },
+      ] },
+      { name: 'public', commentKey: 'web.public', children: [
+        { name: 'images', commentKey: 'web.images' },
+        { name: 'fonts', commentKey: 'web.fonts' },
+      ] },
+      { name: 'docs', commentKey: 'web.docs' },
+      { name: 'tests', commentKey: 'web.tests' },
+    ] },
   },
   {
-    id: 'empty', name: 'Start from scratch', description: 'One folder, endless possibilities', icon: 'plus', text: 'My project',
-    comments: ['The starting point for your folder structure.'],
+    id: 'empty', name: 'Start from scratch', description: 'One folder, endless possibilities', icon: 'plus',
+    root: { name: 'My project', commentKey: 'empty.root' },
   },
-] as const;
+] as const satisfies readonly { id: string; name: string; description: string; icon: string; root: TemplateFolder }[];
 
-/** Comments follow the outline's preorder and become ordinary saved data at creation time. */
-export function makeTemplate(index: number, translate: Translator = message => message) {
-  const template = templates[index];
-  const document = parseIndented(template.text);
-  let commentIndex = 0;
-  function attachComment(node: FolderNode) {
-    node.comment = translate(template.comments[commentIndex++]);
-    node.children.forEach(attachComment);
+function outline(root: TemplateFolder): { node: TemplateFolder; depth: number }[] {
+  const rows: { node: TemplateFolder; depth: number }[] = [];
+  function visit(node: TemplateFolder, depth: number) {
+    rows.push({ node, depth });
+    node.children?.forEach(child => visit(child, depth + 1));
   }
-  attachComment(document.root);
-  return validateDocument({ version: 2, root: document.root });
+  visit(root, 0);
+  return rows;
+}
+
+/** Keep the original plain outlines available without encoding comments into folder names. */
+export const templates = definitions.map(({ root, ...metadata }) => {
+  const rows = outline(root);
+  return {
+    ...metadata,
+    text: rows.map(({ node, depth }) => `${'  '.repeat(depth)}${node.name}`).join('\n'),
+    comments: rows.map(({ node }) => templateCommentMessages[node.commentKey]),
+  };
+});
+
+/** The optional translator is retained for compatibility; only projections are localized. */
+export function makeTemplate(index: number, _translate?: Translator) {
+  function createNode(definition: TemplateFolder): FolderNode {
+    const node = createDocument(definition.name).root;
+    node.comment = templateCommentMessages[definition.commentKey];
+    node.commentBinding = { source: 'folderseed-template', key: definition.commentKey };
+    node.children = definition.children?.map(createNode) ?? [];
+    return node;
+  }
+  return validateDocument({ version: 3, root: createNode(definitions[index].root) });
 }

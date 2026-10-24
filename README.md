@@ -40,7 +40,9 @@ Use the optional comment column to the right of a folder name to add a note, or 
 
 Comments are **literal single-line metadata**, not part of folder names, paths, or executable markup. Each comment allows up to **500 Unicode characters**; all comments together may contain at most **262,144 UTF-8 bytes (256 KiB)**. Newlines, control characters, and invalid Unicode are rejected. The visual preview, text/Markdown exports, JSON, SVG, and PNG include comments. **ZIP ignores comments** and contains the same empty folder entries as an unannotated structure.
 
-Every built-in template folder includes a starting comment. Template comments use the interface language when that template is created, then become ordinary editable project data. Changing the interface language later never translates or replaces existing comments.
+Every built-in template folder includes a starting comment that **follows the interface language until you customize it**. This uses an explicit template binding, not a guess based on its wording. Changing language only changes the displayed translation; it does not change the saved project, create an Undo step, or notify an embedding host of a document edit.
+
+**Save comment** or Enter makes the displayed value a custom, literal comment—even if you leave the wording unchanged. Editing and then leaving the field also makes it custom, including when you type and remove a character before saving. Simply opening and leaving an untouched field, or canceling, preserves its language binding. Undo restores the original binding. Renaming or moving the folder also preserves it. Custom comments, imported text, and older projects without bindings always stay exactly as saved, even when their wording happens to match a template translation.
 
 ## Workspace layout
 
@@ -54,7 +56,7 @@ Open the **FolderSeed** menu at the bottom of the sidebar, then choose **Setting
 
 The preference is saved separately from your folder draft, under `folderseed:theme:v1`. Changing appearance does not apply, discard, or alter unfinished text. If browser storage is blocked, the setting still works for the current session and Settings shows a session-only notice. Themes affect the editor, not the exported folder structure or a surrounding host application.
 
-Settings also includes **Language**. **Automatic** follows the first supported browser language and reacts to language changes. You can choose English, Simplified Chinese, Traditional Chinese, Spanish, French, German, Brazilian Portuguese, Japanese, Korean, Arabic, Hindi, or Russian explicitly. The choice applies immediately and is saved independently under `folderseed:language:v1`; returning to Automatic reads the current browser preferences again. Arabic uses right-to-left interface layout, while directory trees, paths, and outline syntax retain their structural direction. Existing folder names, comments, raw drafts, and exported project data are never translated. New template comments are localized only when the template is created. Language settings are scoped to the embedded editor and do not change a host page's language or direction.
+Settings also includes **Language**. **Automatic** follows the first supported browser language and reacts to language changes. You can choose English, Simplified Chinese, Traditional Chinese, Spanish, French, German, Brazilian Portuguese, Japanese, Korean, Arabic, Hindi, or Russian explicitly. The choice applies immediately and is saved independently under `folderseed:language:v1`; returning to Automatic reads the current browser preferences again. Arabic uses right-to-left interface layout, while directory trees, paths, and outline syntax retain their structural direction. Folder names and custom comments are never translated. Untouched template comments follow the current language through a display-only projection; invalid or unfinished raw text is not rewritten. JSON keeps canonical template bindings, while text and image downloads use the current displayed language. Language settings are scoped to the embedded editor and do not change a host page's language or direction.
 
 ## Choose the right export
 
@@ -219,6 +221,8 @@ An invalid draft shows an error with a source line when available and keeps the 
 
 Exporting, copying, or switching to visual editing commits valid pending text first, so these actions do not use an older version of the tree. **Copy tree** always copies the Unicode tree shown by the text-tree preview. Browser autosave retains the raw text, editor mode, selected format, and last valid document—including when the text is temporarily invalid or empty. Reloading restores that editing state; unfinished drafts from older versions also retain their original parsing rule. Older automatic-format drafts are assigned an explicit format only when that preserves their structure; invalid drafts keep their raw text and error until corrected or a format is explicitly chosen. Undo history remains session-only.
 
+Template comments in text formats are localized snapshots, not reusable language bindings. Switching editor modes or formats without changing the parsed content preserves existing bindings. Re-entering exactly the same parsed names, structure, and comments also preserves them. A substantive text edit commits the whole displayed outline as literal comments; an inline note explains this before editing, without a confirmation dialog. There is no wording-based recovery of a template binding. JSON is the format for retaining those bindings.
+
 All exported text and Markdown variants can be parsed again using their matching format. Internal file-import detection is a convenience, not a guarantee for syntax-like names: for example, choose Plain text to preserve a root literally named `- Notes`. Text parsing creates new IDs; JSON preserves IDs and is the preferred lossless project format.
 
 ## Reuse in your application
@@ -277,21 +281,24 @@ const backup = serializeJSON(annotated);
 
 Import text with `parseText(text, 'auto', 'auto')` or JSON with `parseJSON(text)`. Use `formatText(document, format, indent)` to produce a chosen text representation; `parseIndented` and `formatIndented` remain available for existing integrations. Validate untrusted object input with `validateDocument(input)` before using it. Validation failures are `DirectoryError` instances with a stable `code` and, where applicable, a `line`.
 
-`FolderNode` has an optional `comment?: string` field. Use `setFolderComment(document, folderId, text)` for an immutable, validated update; passing an empty string removes the field. `validateComment(text)` validates a standalone comment, while `validateDocument` also enforces the combined comment-byte budget. `formatFolderLabel(node)` formats the name and optional comment suffix; paths and ZIP entry names continue to use `node.name` alone.
+`FolderNode` has an optional `comment?: string` field and optional `commentBinding?: { source: 'folderseed-template'; key: string }` metadata. A bound node stores an English fallback comment plus a stable semantic key. Use `setFolderComment(document, folderId, text)` for an immutable, validated custom-comment update; it removes any binding, and an empty string also removes the comment. `validateComment(text)` validates a standalone comment, while `validateDocument` also enforces the combined comment-byte budget. `formatFolderLabel(node)` formats the name and optional comment suffix; paths and ZIP entry names continue to use `node.name` alone.
 
 ### JSON compatibility
 
-The JSON wire format uses **`version: 2` when any folder has a comment**, and **`version: 1` when none do**. `parseJSON` and `validateDocument` read both versions and preserve folder IDs. Older version-1 backups remain readable; older FolderSeed releases that do not understand version 2 should not be used to edit annotated backups. Importing and then exporting an unannotated version-2 document produces version 1.
+The JSON wire format uses **`version: 3` when any comment has a template binding**, **`version: 2` for literal comments without bindings**, and **`version: 1` when there are no comments**. `parseJSON` and `validateDocument` read all three versions and preserve IDs and explicit bindings. Older version-1/version-2 projects remain literal; their comment wording is never used to infer a binding. Older readers reject unsupported newer versions instead of silently losing metadata. Export chooses the lowest version needed by the actual content.
+
+JSON downloads and local drafts retain canonical fallback comments and bindings, regardless of the interface language. Text, Markdown, Copy tree, SVG, and PNG use a localized snapshot; ZIP paths still use only folder names. The framework-independent format/export helpers use the document passed to them and do not choose a language automatically. The React UI resolves its display/export snapshot separately. Unknown but valid template keys retain their saved fallback text.
 
 The framework-independent `DirectoryDocument` returned by the current API retains its internal `version: 1` discriminant, including when its nodes have comments. Use **`serializeJSON(document)`**, rather than serializing that internal object directly, for the versioned interchange format. The standalone draft also stores the versioned wire document, while its existing `folderseed:draft:v1` storage key stays unchanged. No manual local-storage migration is needed.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "root": {
     "id": "project",
     "name": "My project",
-    "comment": "Everything for this project",
+    "comment": "The starting point for your folder structure.",
+    "commentBinding": { "source": "folderseed-template", "key": "empty.root" },
     "children": []
   }
 }

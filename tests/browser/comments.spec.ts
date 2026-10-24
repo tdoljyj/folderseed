@@ -309,15 +309,16 @@ test('starts a native subtree drag from a populated comment cell and preserves m
   await expect(page.locator('.fs-folder-comment.is-editing')).toHaveCount(0);
 });
 
-test('localizes new template comments once and never translates saved or user-authored notes on language changes', async ({ page }) => {
+test('updates bound template comments with language while saved canonical and user-authored notes stay unchanged', async ({ page }) => {
   await load(page, 'zh-CN');
   await expect(page.locator('.fs-folder-comment')).toHaveCount(10);
-  await expect.poll(async () => flatten(await saved(page)).every(({ node }) => !!node.comment && /[^\x00-\x7f]/.test(node.comment))).toBe(true);
+  await expect.poll(() => page.locator('.fs-folder-comment').allTextContents()).not.toEqual([]);
+  expect((await page.locator('.fs-folder-comment').allTextContents()).every(value => /[^\x00-\x7f]/.test(value))).toBe(true);
   const initial = await saved(page);
-  const translated = flatten(initial).map(row => row.node.comment);
-  expect(translated.every(value => !!value && /[^\x00-\x7f]/.test(value))).toBe(true);
+  expect(flatten(initial).every(({ node }) => node.commentBinding?.source === 'folderseed-template')).toBe(true);
   await language(page, 'en');
   expect(await saved(page)).toEqual(initial);
+  await expect(page.locator('.fs-folder-comment')).toHaveText(flatten(initial).map(({ node }) => node.comment!));
   await importFile(page, 'Project // Keep English\n    文件夹 // 我的说明\n    ملفاتي // لا تترجم');
   const userData = await saved(page);
   await language(page, 'ar');
@@ -327,10 +328,12 @@ test('localizes new template comments once and never translates saved or user-au
   await page.locator('.fs-template').nth(3).click();
   await page.locator('dialog.fs-dialog button[type="submit"]').click();
   await expect(page.locator('.fs-folder-comment')).toHaveCount(1);
-  const arabicTemplate = await saved(page);
-  expect(arabicTemplate.root.comment).toMatch(/[\u0600-\u06ff]/);
+  const canonicalTemplate = await saved(page);
+  expect(canonicalTemplate.root.commentBinding?.key).toBe('empty.root');
+  await expect(page.locator('.fs-folder-comment')).toHaveText(/[\u0600-\u06ff]/);
   await language(page, 'en');
-  expect(await saved(page)).toEqual(arabicTemplate);
+  expect(await saved(page)).toEqual(canonicalTemplate);
+  await expect(page.locator('.fs-folder-comment')).toHaveText(canonicalTemplate.root.comment!);
 });
 
 async function geometry(page: Page, name: string) {

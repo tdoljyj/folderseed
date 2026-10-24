@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "Project notes and usage guides.",
   "Automated checks for project behavior.": "Automated checks for project behavior.",
   "The starting point for your folder structure.": "The starting point for your folder structure.",
-  "Folder comments together cannot exceed 256 KB.": "Folder comments together cannot exceed 256 KB."
+  "Folder comments together cannot exceed 256 KB.": "Folder comments together cannot exceed 256 KB.",
+  "Text formats are localized snapshots.": "Text formats are localized snapshots.",
+  "Changing text content makes template comments custom.": "Changing text content makes template comments custom.",
+  "Comments from older projects stay as saved.": "Comments from older projects stay as saved.",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "Template comment bindings need a valid source, key, and nonempty fallback comment.",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document."
 }

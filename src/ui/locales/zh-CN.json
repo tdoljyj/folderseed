@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "项目笔记和使用指南。",
   "Automated checks for project behavior.": "检查项目行为的自动化测试。",
   "The starting point for your folder structure.": "目录结构的起点。",
-  "Folder comments together cannot exceed 256 KB.": "文件夹注释的总大小不能超过 256 KB。"
+  "Folder comments together cannot exceed 256 KB.": "文件夹注释的总大小不能超过 256 KB。",
+  "Text formats are localized snapshots.": "文本格式保存当前语言的快照。",
+  "Changing text content makes template comments custom.": "修改文本内容会将模板注释变为自定义注释。",
+  "Comments from older projects stay as saved.": "旧项目中的注释保持保存时的内容。",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "模板注释绑定必须包含有效来源、键和非空的备用注释。",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "不支持此项目版本，请使用 version: 1、version: 2 或 version: 3 文档。"
 }

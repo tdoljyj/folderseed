@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "Notas do projeto e guias de uso.",
   "Automated checks for project behavior.": "Verificações automatizadas do comportamento do projeto.",
   "The starting point for your folder structure.": "O ponto de partida da sua estrutura de pastas.",
-  "Folder comments together cannot exceed 256 KB.": "Os comentários das pastas não podem ultrapassar 256 KB no total."
+  "Folder comments together cannot exceed 256 KB.": "Os comentários das pastas não podem ultrapassar 256 KB no total.",
+  "Text formats are localized snapshots.": "Os formatos de texto são cópias no idioma atual.",
+  "Changing text content makes template comments custom.": "Alterar o conteúdo do texto torna os comentários do modelo personalizados.",
+  "Comments from older projects stay as saved.": "Comentários de projetos antigos permanecem como foram salvos.",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "Os vínculos de comentários do modelo precisam de origem e chave válidas e de um comentário alternativo não vazio.",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "Versão do projeto não compatível. Use um documento com version: 1, version: 2 ou version: 3."
 }

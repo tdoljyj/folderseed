@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "專案筆記和使用指南。",
   "Automated checks for project behavior.": "檢查專案行為的自動化測試。",
   "The starting point for your folder structure.": "目錄結構的起點。",
-  "Folder comments together cannot exceed 256 KB.": "資料夾註解的總大小不能超過 256 KB。"
+  "Folder comments together cannot exceed 256 KB.": "資料夾註解的總大小不能超過 256 KB。",
+  "Text formats are localized snapshots.": "文字格式儲存目前語言的快照。",
+  "Changing text content makes template comments custom.": "修改文字內容會將範本註解變為自訂註解。",
+  "Comments from older projects stay as saved.": "舊專案中的註解保持儲存時的內容。",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "範本註解繫結必須包含有效來源、索引鍵和非空白的備用註解。",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "不支援此專案版本，請使用 version: 1、version: 2 或 version: 3 文件。"
 }

@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "Projektnotizen und Anleitungen.",
   "Automated checks for project behavior.": "Automatisierte Prüfungen des Projektverhaltens.",
   "The starting point for your folder structure.": "Der Ausgangspunkt für deine Ordnerstruktur.",
-  "Folder comments together cannot exceed 256 KB.": "Ordnerkommentare dürfen zusammen nicht größer als 256 KB sein."
+  "Folder comments together cannot exceed 256 KB.": "Ordnerkommentare dürfen zusammen nicht größer als 256 KB sein.",
+  "Text formats are localized snapshots.": "Textformate sind Momentaufnahmen in der aktuellen Sprache.",
+  "Changing text content makes template comments custom.": "Beim Ändern des Textinhalts werden Vorlagenkommentare zu eigenen Kommentaren.",
+  "Comments from older projects stay as saved.": "Kommentare älterer Projekte bleiben wie gespeichert.",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "Vorlagenkommentar-Bindungen benötigen eine gültige Quelle, einen gültigen Schlüssel und einen nicht leeren Ersatzkommentar.",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "Nicht unterstützte Projektversion. Verwende ein Dokument mit version: 1, version: 2 oder version: 3."
 }

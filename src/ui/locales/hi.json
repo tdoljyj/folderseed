@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "प्रोजेक्ट के नोट्स और इस्तेमाल की गाइड।",
   "Automated checks for project behavior.": "प्रोजेक्ट के व्यवहार की स्वचालित जाँच।",
   "The starting point for your folder structure.": "आपकी फ़ोल्डर संरचना की शुरुआत।",
-  "Folder comments together cannot exceed 256 KB.": "फ़ोल्डर की सभी टिप्पणियों का कुल आकार 256 KB से ज़्यादा नहीं हो सकता।"
+  "Folder comments together cannot exceed 256 KB.": "फ़ोल्डर की सभी टिप्पणियों का कुल आकार 256 KB से ज़्यादा नहीं हो सकता।",
+  "Text formats are localized snapshots.": "टेक्स्ट फ़ॉर्मैट मौजूदा भाषा के स्नैपशॉट होते हैं।",
+  "Changing text content makes template comments custom.": "टेक्स्ट की सामग्री बदलने पर टेम्पलेट की टिप्पणियाँ कस्टम टिप्पणियाँ बन जाती हैं।",
+  "Comments from older projects stay as saved.": "पुराने प्रोजेक्ट की टिप्पणियाँ सहेजे गए रूप में बनी रहती हैं।",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "टेम्पलेट टिप्पणी बाइंडिंग के लिए मान्य स्रोत, कुंजी और खाली न होने वाली फ़ॉलबैक टिप्पणी ज़रूरी है।",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "प्रोजेक्ट का यह संस्करण समर्थित नहीं है। version: 1, version: 2 या version: 3 दस्तावेज़ इस्तेमाल करें।"
 }

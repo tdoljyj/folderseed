@@ -1,8 +1,14 @@
 /** Framework-independent, immutable directory model. No filesystem or network access. */
+export interface CommentBinding {
+  source: 'folderseed-template';
+  key: string;
+}
+
 export interface FolderNode {
   id: string;
   name: string;
   comment?: string;
+  commentBinding?: CommentBinding;
   children: FolderNode[];
 }
 
@@ -21,7 +27,7 @@ export interface FlatFolder {
   path: string;
 }
 
-export const LIMITS = Object.freeze({ nodes: 500, depth: 32, nameLength: 100, nameBytes: 255, commentLength: 500, commentBytes: 262_144, textBytes: 1_000_000 });
+export const LIMITS = Object.freeze({ nodes: 500, depth: 32, nameLength: 100, nameBytes: 255, commentLength: 500, commentBytes: 262_144, commentBindingKeyLength: 100, textBytes: 1_000_000 });
 
 export class DirectoryError extends Error {
   readonly code: string;
@@ -101,11 +107,23 @@ export function formatFolderLabel(node: Pick<FolderNode, 'name' | 'comment'>): s
   return comment === '' ? name : `${name} // ${comment}`;
 }
 
+function validateCommentBinding(value: unknown, comment: string): CommentBinding {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('INVALID_COMMENT_BINDING', 'Template comment bindings need a valid source, key, and nonempty fallback comment.');
+  }
+  const binding = value as Record<string, unknown>;
+  if (binding.source !== 'folderseed-template' || typeof binding.key !== 'string'
+    || !/^[A-Za-z][A-Za-z0-9._-]*$/.test(binding.key) || binding.key.length > LIMITS.commentBindingKeyLength || comment === '') {
+    fail('INVALID_COMMENT_BINDING', 'Template comment bindings need a valid source, key, and nonempty fallback comment.');
+  }
+  return { source: 'folderseed-template', key: binding.key };
+}
+
 /** Validate untrusted JSON and return a clean deep copy; unknown properties are not retained. */
 export function validateDocument(input: unknown): DirectoryDocument {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_DOCUMENT', 'The project must be a JSON object.');
   const doc = input as Record<string, unknown>;
-  if (doc.version !== 1 && doc.version !== 2) fail('UNSUPPORTED_VERSION', 'Unsupported project version. Please use a version: 1 or version: 2 document.');
+  if (doc.version !== 1 && doc.version !== 2 && doc.version !== 3) fail('UNSUPPORTED_VERSION', 'Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.');
   let count = 0;
   let commentBytes = 0;
   const ids = new Set<string>();
@@ -122,6 +140,7 @@ export function validateDocument(input: unknown): DirectoryDocument {
     ids.add(node.id);
     const name = validateName(node.name);
     const comment = node.comment === undefined ? '' : validateComment(node.comment);
+    const commentBinding = node.commentBinding === undefined ? undefined : validateCommentBinding(node.commentBinding, comment);
     commentBytes += new TextEncoder().encode(comment).byteLength;
     if (commentBytes > LIMITS.commentBytes) fail('COMMENTS_TOO_LARGE', 'Folder comments together cannot exceed 256 KB.');
     if (!Array.isArray(node.children)) fail('INVALID_CHILDREN', 'Each folder must have a children array.');
@@ -134,9 +153,23 @@ export function validateDocument(input: unknown): DirectoryDocument {
       siblingNames.add(key);
       children.push(cleanChild);
     }
-    return { id: node.id, name, ...(comment === '' ? {} : { comment }), children };
+    return { id: node.id, name, ...(comment === '' ? {} : { comment }), ...(commentBinding ? { commentBinding } : {}), children };
   }
   return { version: 1, root: visit(doc.root, 0) };
+}
+
+/** Compare semantic content, including comment provenance, without relying on regenerated IDs. */
+export function documentContentEqual(first: DirectoryDocument, second: DirectoryDocument): boolean {
+  const left = validateDocument(first);
+  const right = validateDocument(second);
+  function equal(a: FolderNode, b: FolderNode): boolean {
+    return a.name === b.name && a.comment === b.comment
+      && a.commentBinding?.source === b.commentBinding?.source
+      && a.commentBinding?.key === b.commentBinding?.key
+      && a.children.length === b.children.length
+      && a.children.every((child, index) => equal(child, b.children[index]));
+  }
+  return equal(left.root, right.root);
 }
 
 export function createDocument(rootName = 'My project'): DirectoryDocument {
@@ -152,7 +185,9 @@ export function parseJSON(text: string): DirectoryDocument {
 
 export function serializeJSON(doc: DirectoryDocument): string {
   const clean = validateDocument(doc);
-  const version = flatten(clean).some(({ node }) => node.comment !== undefined) ? 2 : 1;
+  const rows = flatten(clean);
+  const version = rows.some(({ node }) => node.commentBinding !== undefined) ? 3
+    : rows.some(({ node }) => node.comment !== undefined) ? 2 : 1;
   const output = { version, root: clean.root };
   let json = JSON.stringify(output, null, 2);
   // Keep even maximum-size annotated projects re-importable within the input cap.
@@ -504,11 +539,12 @@ export function renameFolder(doc: DirectoryDocument, id: string, name: string): 
   return validateDocument(clean);
 }
 
-/** Change only one folder's comment; an empty string removes it. */
+/** User edits always detach template provenance, even for identical text; empty removes the comment. */
 export function setFolderComment(doc: DirectoryDocument, id: string, comment: string): DirectoryDocument {
   const clean = validateDocument(doc);
   const node = requireNode(clean, id).node;
   const value = validateComment(comment);
+  delete node.commentBinding;
   if (value === '') delete node.comment;
   else node.comment = value;
   return validateDocument(clean);

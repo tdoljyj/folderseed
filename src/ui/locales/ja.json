@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "プロジェクトのメモと使い方ガイド。",
   "Automated checks for project behavior.": "プロジェクトの動作を確かめる自動テスト。",
   "The starting point for your folder structure.": "フォルダー構成の出発点。",
-  "Folder comments together cannot exceed 256 KB.": "フォルダーのコメントの合計は 256 KB 以内にしてください。"
+  "Folder comments together cannot exceed 256 KB.": "フォルダーのコメントの合計は 256 KB 以内にしてください。",
+  "Text formats are localized snapshots.": "テキスト形式は現在の言語でのスナップショットです。",
+  "Changing text content makes template comments custom.": "テキストの内容を変更すると、テンプレートのコメントは独自のコメントになります。",
+  "Comments from older projects stay as saved.": "以前のプロジェクトのコメントは保存時の内容を保持します。",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "テンプレートコメントの関連付けには、有効なソースとキー、および空でない代替コメントが必要です。",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "未対応のプロジェクトバージョンです。version: 1、version: 2、または version: 3 のドキュメントを使用してください。"
 }

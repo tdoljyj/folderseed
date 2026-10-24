@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "Заметки о проекте и руководства по использованию.",
   "Automated checks for project behavior.": "Автоматические проверки поведения проекта.",
   "The starting point for your folder structure.": "Отправная точка для вашей структуры папок.",
-  "Folder comments together cannot exceed 256 KB.": "Общий объём комментариев к папкам не может превышать 256 KB."
+  "Folder comments together cannot exceed 256 KB.": "Общий объём комментариев к папкам не может превышать 256 KB.",
+  "Text formats are localized snapshots.": "Текстовые форматы — это снимки на текущем языке.",
+  "Changing text content makes template comments custom.": "Изменение содержимого текста превращает комментарии шаблона в пользовательские.",
+  "Comments from older projects stay as saved.": "Комментарии из старых проектов остаются такими, какими были сохранены.",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "Привязкам комментариев шаблона нужны допустимые источник и ключ, а также непустой резервный комментарий.",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "Неподдерживаемая версия проекта. Используйте документ version: 1, version: 2 или version: 3."
 }

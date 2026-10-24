@@ -302,5 +302,10 @@
   "Project notes and usage guides.": "ملاحظات المشروع وأدلة الاستخدام.",
   "Automated checks for project behavior.": "اختبارات آلية للتحقق من سلوك المشروع.",
   "The starting point for your folder structure.": "نقطة البداية لبنية مجلداتك.",
-  "Folder comments together cannot exceed 256 KB.": "لا يمكن أن يتجاوز مجموع تعليقات المجلدات 256 KB."
+  "Folder comments together cannot exceed 256 KB.": "لا يمكن أن يتجاوز مجموع تعليقات المجلدات 256 KB.",
+  "Text formats are localized snapshots.": "الصيغ النصية لقطات باللغة الحالية.",
+  "Changing text content makes template comments custom.": "تغيير محتوى النص يحوّل تعليقات القالب إلى تعليقات مخصصة.",
+  "Comments from older projects stay as saved.": "تبقى تعليقات المشاريع القديمة كما حُفظت.",
+  "Template comment bindings need a valid source, key, and nonempty fallback comment.": "تحتاج روابط تعليقات القالب إلى مصدر ومفتاح صالحين وتعليق بديل غير فارغ.",
+  "Unsupported project version. Please use a version: 1, version: 2, or version: 3 document.": "إصدار المشروع غير مدعوم. استخدم مستندًا يحتوي على version: 1 أو version: 2 أو version: 3."
 }

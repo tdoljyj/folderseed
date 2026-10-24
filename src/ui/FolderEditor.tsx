@@ -1,16 +1,18 @@
 import { Fragment, useId, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ChangeEvent, type CompositionEvent } from 'react';
-import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, setFolderComment, serializeJSON, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
+import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, serializeJSON, validateDocument, documentContentEqual, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
 import { FormatSwitch } from './FormatSwitch';
 import { AppMenu, SettingsDialog } from './Settings';
 import { useTheme } from './theme';
-import { I18nProvider, useI18n, useLanguage, readBrowserLocale, readLanguagePreference, createTranslator } from './i18n';
+import { I18nProvider, useI18n, useLanguage, createTranslator, type Locale } from './i18n';
 import { bottomAncestorTargets, dropDepth, dropPlacement, moveByDrop, resolveDropTarget, type DropPlacement } from './dragDrop';
 import { historyReducer, historyShortcut } from './history';
 import { addSiblingFolder, indentFolder, outdentFolder } from './folderActions';
 import { restoreTextFormat, type ExplicitTextFormat } from './draftFormat';
 import { makeTemplate, templates } from './templates';
+import { resolveTemplateComments } from './templateComments';
+import { finishCommentEdit, presentTextDraft, reconcileTextSnapshot, restoreDraftLocale } from './commentPresentation';
 import { BackgroundTapTracker, EDITOR_BACKGROUND_SELECTOR } from './backgroundTap';
 import { useMobileHeader } from './mobileHeader';
 
@@ -26,7 +28,7 @@ export interface FolderEditorProps {
 }
 type Modal = { kind: 'move'; id: string } | { kind: 'template'; index: number };
 type DeleteUndo = { before: DirectoryDocument; after: DirectoryDocument; folderId: string };
-type InlineEdit = { kind: 'rename' | 'add' | 'comment'; id: string; afterId?: string; anchorId: string; value: string; error: string };
+type InlineEdit = { kind: 'rename' | 'add' | 'comment'; id: string; afterId?: string; anchorId: string; value: string; initialValue: string; touched: boolean; error: string };
 const formats: { id: ExportFormat; title: string; description: string; icon: string }[] = [
   { id: 'zip', title: 'Folder ZIP', description: 'Real, empty folders', icon: 'folder' },
   { id: 'txt', title: 'Plain text', description: 'Easy to copy & edit', icon: 'code' },
@@ -48,10 +50,10 @@ interface InitialState {
   indent: ParseIndent;
   warning: string;
   recoveryRaw: string | null;
-  freshTemplate: boolean;
+  textLocale: Locale;
 }
 function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey: string | false): InitialState {
-  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'plain' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null, freshTemplate: false };
+  const defaults = { draft: null, pending: false, mode: 'visual' as const, textFormat: 'plain' as TextFormat, indent: 'auto' as ParseIndent, warning: '', recoveryRaw: null, textLocale: 'en' as Locale };
   if (initialDocument) return { ...defaults, textFormat: 'plain', document: validateDocument(initialDocument) };
   if (storageKey && typeof window !== 'undefined') {
     let raw: string | null = null;
@@ -69,6 +71,7 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
         const pending = draft !== null && stored.pending !== false;
         return {
           ...defaults, document, draft,
+          textLocale: draft === null ? 'en' : restoreDraftLocale(stored.textLocale),
           pending,
           mode: stored.mode === 'text' || pending ? 'text' : 'visual',
           textFormat: restoreTextFormat(stored.textFormat, draft, document, pending, restoredIndent),
@@ -76,23 +79,21 @@ function loadInitial(initialDocument: DirectoryDocument | undefined, storageKey:
         };
       }
     } catch {
-      return { ...defaults, document: makeTemplate(0), freshTemplate: true, warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw };
+      return { ...defaults, document: makeTemplate(0), warning: 'Your saved draft could not be loaded. The original is preserved in browser storage. A fresh example is open; import a JSON backup to recover.', recoveryRaw: raw };
     }
   }
-  return { ...defaults, document: makeTemplate(0), freshTemplate: true };
+  return { ...defaults, document: makeTemplate(0) };
 }
 
-/** Ignore regenerated text-import IDs when deciding whether a typing burst changed the tree. */
-function sameStructure(first: DirectoryDocument, second: DirectoryDocument): boolean {
-  return formatIndented(first) === formatIndented(second);
-}
+/** Binding changes are real edits even when the visible comment stays identical. */
+const sameStructure = documentContentEqual;
 
 export function FolderEditor(props: FolderEditorProps) {
   const language = useLanguage(props.languageStorageKey ?? 'folderseed:language:v1');
   return <I18nProvider value={language}><FolderEditorContent {...props}/></I18nProvider>;
 }
 
-function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderseed:draft:v1', themeStorageKey = 'folderseed:theme:v1', languageStorageKey = 'folderseed:language:v1' }: FolderEditorProps) {
+function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderseed:draft:v1', themeStorageKey = 'folderseed:theme:v1' }: FolderEditorProps) {
   const { t, translateError, locale, direction } = useI18n();
   const theme = useTheme(themeStorageKey);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -100,17 +101,18 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const mobileHeaderHidden = useMobileHeader(sidebarRef, settingsOpen);
   const settingsTrigger = useRef<HTMLButtonElement | null>(null);
   const [initial] = useState(() => loadInitial(initialDocument, storageKey));
-  const freshTemplateInitialized = useRef(!initial.freshTemplate);
   const [history, dispatch] = useReducer(historyReducer, { past: [], present: initial.document, future: [] });
   const doc = history.present;
+  const displayDoc = useMemo(() => resolveTemplateComments(doc, t), [doc, t]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'visual' | 'text'>(initial.mode);
   const [textFormat, setTextFormat] = useState<TextFormat>(initial.textFormat);
   // Only unfinished legacy drafts retain an explicit parsing rule; new input is auto-detected.
   const [indent, setIndent] = useState<ParseIndent>(initial.indent);
-  const [textDraft, setTextDraft] = useState(initial.draft ?? formatIndented(doc, OUTPUT_INDENT));
+  const [textDraft, setTextDraft] = useState(initial.draft ?? formatIndented(displayDoc, OUTPUT_INDENT));
   const [textDirty, setTextDirty] = useState(initial.pending);
+  const [textLocale, setTextLocale] = useState<Locale>(initial.textLocale);
   const [composing, setComposing] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('zip');
   const [previewMode, setPreviewMode] = useState<'folders' | 'text'>('folders');
@@ -205,14 +207,23 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     }
     return result;
   }, [doc, selectedId]);
+  const textBaseline = useMemo(() => resolveTemplateComments(doc, createTranslator(textLocale)), [doc, textLocale]);
+  const textOutputFormat = useMemo(() => {
+    if (textFormat !== 'auto') return textFormat;
+    try { return detectTextFormat(textDraft); } catch { return 'plain' as const; }
+  }, [textDraft, textFormat]);
+  const textPresentation = useMemo(() => presentTextDraft(doc, displayDoc, textDraft, textLocale, locale, textOutputFormat, textDirty, composing, OUTPUT_INDENT), [doc, displayDoc, textDraft, textLocale, locale, textOutputFormat, textDirty, composing]);
+  const visibleTextDraft = textPresentation.text;
+  const visibleTextLocale = textPresentation.locale;
   const parsed = useMemo(() => {
     if (!textDirty || composing) return { document: doc, error: '' };
-    try { return { document: parseText(textDraft, textFormat, indent), error: '' }; }
+    try { return { document: reconcileTextSnapshot(doc, parseText(textDraft, textFormat, indent), textBaseline), error: '' }; }
     catch (error) { return { document: doc, error: errorMessage(error) }; }
-  }, [doc, textDirty, textDraft, indent, textFormat, composing]);
+  }, [doc, textDirty, textDraft, indent, textFormat, composing, textBaseline]);
   const invalidDraft = textDirty && !!parsed.error;
   const blockedDraft = invalidDraft || composing;
-  const previewDoc = mode === 'text' && !composing ? parsed.document : doc;
+  const previewSource = mode === 'text' && !composing ? parsed.document : doc;
+  const previewDoc = useMemo(() => resolveTemplateComments(previewSource, t), [previewSource, t]);
   const previewRows = useMemo(() => flatten(previewDoc), [previewDoc]);
   const depth = Math.max(...previewRows.map(row => row.depth)) + 1;
   const activeExportCard = format === 'ascii' || format === 'unicode' ? 'txt' : format === 'md-tree' ? 'md' : format;
@@ -234,19 +245,6 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       historyFocusId.current = null;
     }
   }, [doc, selectedId, mode, collapsed]);
-  useEffect(() => {
-    if (freshTemplateInitialized.current) return;
-    freshTemplateInitialized.current = true;
-    if (contentRevision.current !== 0 || doc !== initial.document) return;
-    // Defer browser preference reads until mount to keep SSR and hydration identical.
-    // Saved/custom documents and subsequent language changes never rewrite comments.
-    const { preference } = readLanguagePreference(languageStorageKey);
-    const initialLocale = preference === 'auto' ? readBrowserLocale() : preference;
-    const next = makeTemplate(0, createTranslator(initialLocale));
-    if (sameStructure(doc, next)) return;
-    dispatch({ type: 'initialize', document: next });
-    setTextDraft(formatIndented(next, OUTPUT_INDENT));
-  }, [initial, doc, languageStorageKey]);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onChangeRef.current?.(doc); }, [doc]);
   useEffect(() => {
@@ -263,17 +261,17 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
           recoveryBackedUp.current = true;
         } catch { setSaveState('Autosave paused — unreadable draft preserved'); return; }
       }
-      localStorage.setItem(storageKey, JSON.stringify({ document: JSON.parse(serializeJSON(doc)), draft: textDraft, pending: textDirty, mode, textFormat, indent }));
+      localStorage.setItem(storageKey, JSON.stringify({ document: JSON.parse(serializeJSON(doc)), draft: textDraft, pending: textDirty, mode, textFormat, indent, textLocale }));
       draftPersisted.current = true;
       setSaveState('Saved on this device');
     } catch { setSaveState('Draft not saved — copy your text before leaving'); }
-  }, [doc, textDirty, textDraft, storageKey, indent, textFormat, mode, initial.recoveryRaw]);
+  }, [doc, textDirty, textDraft, storageKey, indent, textFormat, mode, textLocale, initial.recoveryRaw]);
   useEffect(() => {
     if (!modal) return;
     dialog.current?.showModal();
   }, [modal]);
   useEffect(() => {
-    const inlineDirty = inlineEdit && (inlineEdit.kind === 'add' ? !!inlineEdit.value : inlineEdit.value !== (inlineEdit.kind === 'comment' ? rows.find(row => row.node.id === inlineEdit.id)?.node.comment ?? '' : rows.find(row => row.node.id === inlineEdit.id)?.node.name));
+    const inlineDirty = inlineEdit && (inlineEdit.kind === 'comment' ? inlineEdit.touched : inlineEdit.kind === 'add' ? !!inlineEdit.value : inlineEdit.value !== inlineEdit.initialValue);
     if (!textDirty && !inlineDirty) return;
     const warn = (event: BeforeUnloadEvent) => { if (inlineDirty || !draftPersisted.current) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
@@ -296,7 +294,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (outputFormat === 'auto') {
       try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
     }
-    return formatText(next, outputFormat, OUTPUT_INDENT);
+    return formatText(resolveTemplateComments(next, t), outputFormat, OUTPUT_INDENT);
   }
   function replaceEditorText(next: DirectoryDocument) {
     // Programmatic output has a known syntax; pin it rather than guessing from a new folder name.
@@ -305,7 +303,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       try { outputFormat = detectTextFormat(textDraft); } catch { outputFormat = 'plain'; }
       setTextFormat(outputFormat);
     }
-    setTextDraft(editorText(next, outputFormat));
+    setTextDraft(editorText(next, outputFormat)); setTextLocale(locale);
   }
   function commit(next: DirectoryDocument, message?: string) {
     clearDeleteUndo();
@@ -319,7 +317,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (!textDirty) return doc;
     clearDeleteUndo();
     contentRevision.current++;
-    const next = sameStructure(doc, parsed.document) ? doc : parsed.document;
+    const next = parsed.document;
     if (next !== doc) dispatch({ type: 'commit', document: next });
     // Do not serialize here: preserve the user's spelling, spacing, selection, and caret.
     setTextDirty(false);
@@ -339,6 +337,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     contentRevision.current++;
     draftPersisted.current = false;
     setSaveState(storageKey ? 'Saving draft…' : 'Kept in this session');
+    if (!textDirty) setTextLocale(visibleTextLocale);
     setTextDraft(value); setTextDirty(true);
   }
   function revertText() {
@@ -352,7 +351,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     const next = flushText();
     if (!next) return;
     setTextFormat(nextFormat);
-    if (nextFormat !== textFormat) setTextDraft(editorText(next, nextFormat));
+    if (nextFormat !== textFormat) { setTextDraft(editorText(next, nextFormat)); setTextLocale(locale); }
     setMode('text');
   }
   function historyStep(type: 'undo' | 'redo') {
@@ -440,9 +439,10 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     clearDeleteUndo();
     const anchorId = afterId ?? id;
     const node = flatten(latest).find(row => row.node.id === id)!.node;
-    const value = kind === 'rename' ? node.name : kind === 'comment' ? node.comment ?? '' : '';
+    const displayed = kind === 'comment' ? flatten(resolveTemplateComments(latest, t)).find(row => row.node.id === id)!.node : node;
+    const value = kind === 'rename' ? node.name : kind === 'comment' ? displayed.comment ?? '' : '';
     contentRevision.current++;
-    updateInline({ kind, id, afterId, anchorId, value, error: '' });
+    updateInline({ kind, id, afterId, anchorId, value, initialValue: value, touched: false, error: '' });
     setSelectedId(anchorId);
     if (kind === 'add') setCollapsed(previous => { const next = new Set(previous); next.delete(id); return next; });
     requestAnimationFrame(() => { inlineInput.current?.focus(); inlineInput.current?.select(); });
@@ -454,19 +454,20 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     updateInline(null);
     focusFolder(edit.anchorId);
   }
-  function finishInline(restoreFocus = true): DirectoryDocument | null {
+  function finishInline(restoreFocus = true, explicitSave = false): DirectoryDocument | null {
     const edit = inlineRef.current;
     if (!edit) return doc;
     if (inlineComposing.current) return null;
     try {
       const next = edit.kind === 'rename' ? renameFolder(doc, edit.id, edit.value)
-        : edit.kind === 'comment' ? setFolderComment(doc, edit.id, edit.value) : edit.afterId ? addSiblingFolder(doc, edit.afterId, edit.value) : addFolder(doc, edit.id, edit.value);
+        : edit.kind === 'comment' ? finishCommentEdit(doc, edit.id, edit.value, edit.touched, explicitSave) : edit.afterId ? addSiblingFolder(doc, edit.afterId, edit.value) : addFolder(doc, edit.id, edit.value);
       const selected = edit.kind !== 'add' ? edit.id
         : flatten(next).find(row => row.parentId === edit.id && row.node.name === edit.value.normalize('NFC'))!.node.id;
       updateInline(null);
-      if (!sameStructure(doc, next)) commit(next, edit.kind === 'comment' ? 'Comment saved.' : edit.kind === 'rename' ? 'Folder renamed.' : 'Folder added.');
+      const changed = !sameStructure(doc, next);
+      if (changed) commit(next, edit.kind === 'comment' ? 'Comment saved.' : edit.kind === 'rename' ? 'Folder renamed.' : 'Folder added.');
       setSelectedId(selected); if (restoreFocus) focusFolder(selected);
-      return next;
+      return changed ? next : doc;
     } catch (error) {
       updateInline({ ...edit, error: errorMessage(error) });
       requestAnimationFrame(() => { if (inlineRef.current) inlineInput.current?.focus({ preventScroll: true }); });
@@ -490,17 +491,17 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       autoComplete: 'off', spellCheck: false, dir: 'auto',
       onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const current = inlineRef.current;
-        if (current) { contentRevision.current++; updateInline({ ...current, value: event.target.value, error: '' }); }
+        if (current) { contentRevision.current++; updateInline({ ...current, value: event.target.value, touched: true, error: '' }); }
       },
       onCompositionStart: () => { inlineComposing.current = true; },
       onCompositionEnd: (event: CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         inlineComposing.current = false;
         const current = inlineRef.current;
-        if (current) updateInline({ ...current, value: event.currentTarget.value });
+        if (current) updateInline({ ...current, value: event.currentTarget.value, touched: current.touched || event.currentTarget.value !== current.initialValue });
       },
       onKeyDown: (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         if (event.nativeEvent.isComposing || inlineComposing.current || event.nativeEvent.keyCode === 229) return;
-        if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); finishInline(); }
+        if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); finishInline(true, true); }
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelInline(); }
       },
     };
@@ -509,7 +510,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       if (inlineRef.current) finishInline(false);
     }}>
       {isComment ? <textarea {...fieldProps} rows={1} cols={1} wrap="off"/> : <input {...fieldProps}/>}
-      <button type="button" className="fs-inline-save" aria-label={t(isComment ? 'Save comment' : 'Save name')} title={t(isComment ? 'Save comment' : 'Save name')} onMouseDown={event => event.preventDefault()} onClick={() => finishInline()}><Icon name="check" size={16}/></button>
+      <button type="button" className="fs-inline-save" aria-label={t(isComment ? 'Save comment' : 'Save name')} title={t(isComment ? 'Save comment' : 'Save name')} onMouseDown={event => event.preventDefault()} onClick={() => finishInline(true, true)}><Icon name="check" size={16}/></button>
       <button type="button" className="fs-inline-cancel" aria-label={t(isComment ? 'Cancel comment' : 'Cancel editing')} title={t(isComment ? 'Cancel comment' : 'Cancel editing')} onMouseDown={event => event.preventDefault()} onClick={cancelInline}><Icon name="close" size={16}/></button>
       {edit.error && !isComment && <span className="fs-inline-error" id={inlineErrorId} role="alert">{translateError(edit.error)}</span>}
     </div>;
@@ -533,7 +534,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
         const index = destinationBefore === 'end' ? undefined : children.findIndex(child => child.id === destinationBefore);
         commit(moveFolder(doc, modal.id, destination, index), 'Folder moved.'); setCollapsed(new Set());
       } else if (modal.kind === 'template') {
-        commit(makeTemplate(modal.index, t), 'Template opened. Your previous structure is available with Undo.'); clearSelection(); setCollapsed(new Set()); setMode('visual');
+        commit(makeTemplate(modal.index), 'Template opened. Your previous structure is available with Undo.'); clearSelection(); setCollapsed(new Set()); setMode('visual');
       }
       closeModal();
     } catch (error) { setModalError(errorMessage(error)); }
@@ -655,7 +656,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     if (!latest) return;
     setExporting(true);
     try {
-      const result = await createExport(latest, format);
+      const result = await createExport(format === 'json' ? latest : resolveTemplateComments(latest, t), format);
       const url = URL.createObjectURL(result.blob);
       const link = document.createElement('a'); link.href = url; link.download = result.filename; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
@@ -666,7 +667,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   async function copyPreview() {
     const latest = flushText();
     if (!latest) return;
-    try { await navigator.clipboard.writeText(formatTree(latest)); notify('Folder tree copied.'); }
+    try { await navigator.clipboard.writeText(formatTree(resolveTemplateComments(latest, t))); notify('Folder tree copied.'); }
     catch { notify('Clipboard access is unavailable. Download Plain text instead.', true); }
   }
   function renderFolder(node: FolderNode, level: number) {
@@ -758,7 +759,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
               onDragOver={event => { if (isTrailingSpace(event)) dragOver(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
               onDrop={event => { if (isTrailingSpace(event)) drop(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
               onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(null); }}>
-              {renderFolder(doc.root, 0)}<li className={`fs-tree-tail ${bottomTargets.length ? 'has-drop-bands' : ''}`} aria-hidden="true"/>
+              {renderFolder(displayDoc.root, 0)}<li className={`fs-tree-tail ${bottomTargets.length ? 'has-drop-bands' : ''}`} aria-hidden="true"/>
               {bottomTargets.length > 0 && <li className="fs-bottom-drop-zones" aria-label={t("Move out destinations")}>
                 {bottomTargets.map(target => <div key={target.node.id} className={`fs-bottom-drop-band ${dropTarget?.id === target.node.id && dropTarget.placement === 'after' ? 'is-active' : ''}`}
                   data-drop-target-id={target.node.id} aria-label={t('Move out after {name}', { name: target.node.name })} title={t('Move out after {name}', { name: target.path })}
@@ -773,9 +774,9 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
             {rows.length === 1 && <div className="fs-empty-hint"><Icon name="spark" size={23}/><p>{t("Every good structure starts somewhere.")}<br/>{t("Select the root, then add a child folder.")}</p></div>}
             <div className={`fs-selection-summary ${selected ? '' : 'is-empty'}`}>{selected && <><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><button type="button" className="fs-advanced-move" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={14}/>{t("Move")}</button></>}</div>
           </div> : <div id="text-editor" role="region" aria-label={t("Text editor")} className="fs-text-area">
-            <textarea aria-label={t("Folder structure text")} spellCheck={false} value={textDraft}
+            <textarea aria-label={t("Folder structure text")} spellCheck={false} value={visibleTextDraft}
               onChange={event => changeText(event.target.value)}
-              onCompositionStart={() => { composingRef.current = true; setComposing(true); contentRevision.current++; }}
+              onCompositionStart={event => { changeText(event.currentTarget.value); composingRef.current = true; setComposing(true); }}
               onCompositionEnd={event => { composingRef.current = false; setComposing(false); changeText(event.currentTarget.value); }}
               onKeyDown={event => {
                 if (event.key === 'Tab' && !event.nativeEvent.isComposing && !composingRef.current) {
@@ -783,11 +784,12 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
                   const input = event.currentTarget;
                   const position = input.selectionStart;
                   const insertion = ' '.repeat(OUTPUT_INDENT);
-                  changeText(textDraft.slice(0, position) + insertion + textDraft.slice(input.selectionEnd));
+                  changeText(visibleTextDraft.slice(0, position) + insertion + visibleTextDraft.slice(input.selectionEnd));
                   requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = position + insertion.length; });
                 }
               }}/>
             <p className="fs-text-guide">{t("Changes apply automatically after a short pause. Plain text, Markdown lists, ASCII trees, and Unicode trees are supported. Choose Plain text to keep leading punctuation literal.")} {t("Use // after a folder name for a single-line comment.")}</p>
+            <p className="fs-text-guide fs-comment-format-note"><strong>{t('Text formats are localized snapshots.')}</strong>{' '}{t('Changing text content makes template comments custom.')}{' '}{t('Comments from older projects stay as saved.')}</p>
             {parsed.error ? <div className="fs-inline-error" role="alert">{translateError(parsed.error)}<span className="fs-error-detail">{t("Your draft is kept. The preview still shows the last valid structure.")}</span></div> : <div className="fs-text-valid"><Icon name={composing || textDirty ? 'edit' : 'check'} size={14}/>{composing ? t("Composing… your last valid structure is unchanged") : textDirty ? t("Saving changes…") : t("Automatically applied · no extra click needed")}</div>}
             {textDirty && <div className="fs-text-actions"><button type="button" className="fs-button" disabled={composing} onClick={revertText}>{t("Revert text")}</button></div>}
           </div>}

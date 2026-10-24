@@ -3184,3 +3184,35 @@
 @media (max-width: 800px) and (prefers-reduced-motion: reduce) {
   .fs-app .fs-sidebar { transition: none; }
 }
+
+
+/* Mobile tree density is independent of desktop geometry; drops read the same tokens. */
+.fs-app { --fs-tree-leading: 12px; --fs-tree-indent: 22px; }
+@media (max-width: 600px) {
+  .fs-app { --fs-tree-leading: 0px; --fs-tree-indent: 14px; }
+  .fs-app .fs-drag-hint { flex-basis: 14px; width: 14px; margin-right: 2px; }
+  .fs-app :is(.fs-disclosure, .fs-disclosure-placeholder) { width: 24px; min-width: 24px; }
+  .fs-app .fs-folder-select { gap: 6px; }
+  .fs-app .fs-folder-frame.has-actions {
+    --fs-action-min-width: calc(68px + var(--fs-action-name-min) + var(--fs-action-size) * 2);
+    --fs-action-columns: 40px 26px minmax(var(--fs-action-name-min), max-content) var(--fs-action-size) var(--fs-action-size);
+  }
+  .fs-app .fs-folder-frame.has-actions .fs-folder-select { grid-template-columns: 26px minmax(0, 1fr); gap: 0; }
+  .fs-app .fs-folder-frame.has-actions .fs-drag-hint { margin-left: 0; }
+  .fs-app .fs-context-actions { grid-template-columns: 40px 26px minmax(var(--fs-action-name-min), 1fr) var(--fs-action-size) var(--fs-action-size); }
+  .fs-app .fs-context-actions button[data-action='outdent'] { margin-left: 14px; }
+  .fs-app .fs-floating-disclosure { left: 20px; width: 18px; min-width: 18px; }
+  .fs-app .fs-folder-frame:not(.has-actions) .fs-folder-select:not(:has(> .fs-inline-editor)) {
+    max-width: calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 96px);
+  }
+}
+
+/* Native editable controls keep a real, zoom-safe font on narrow or touch screens. */
+@media (max-width: 800px), (hover: none) and (pointer: coarse) {
+  .fs-app :is(input:not([type='file']), textarea, select) { font-size: 16px !important; }
+  .fs-app select { min-width: 0; max-width: 100%; }
+  .fs-app :is(button, .fs-inline-editor) { touch-action: manipulation; }
+  .fs-app .fs-mobile-templates { flex-wrap: wrap; }
+  .fs-app .fs-mobile-templates > span { min-width: 0; flex: 1 1 140px; overflow-wrap: anywhere; }
+  .fs-app .fs-mobile-templates select { flex: 1 1 160px; }
+}

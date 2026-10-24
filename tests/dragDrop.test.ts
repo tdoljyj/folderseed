@@ -232,6 +232,12 @@ describe('drag safety and atomic failures', () => {
 });
 
 describe('horizontal insertion depth', () => {
+  it.each([[0, 1], [14, 1], [27.9, 1], [28, 2], [42, 3], [56, 4]])('uses the compact mobile row geometry at x=%s', (x, expected) => {
+    expect(dropDepth(x, 0, 0, 14)).toBe(expected);
+    expect(dropDepth(x + 120, 120, 0, 14)).toBe(expected);
+    expect(dropDepth(x - 80, -80, 0, 14)).toBe(expected);
+  });
+
   it.each([
     [-200, 1], [0, 1], [12, 1], [34, 1], [39, 1], [45, 1], [55.999, 1],
     [56, 2], [61, 2], [67, 2], [77.999, 2], [78, 3], [100, 4],

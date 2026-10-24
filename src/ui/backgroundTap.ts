@@ -1,5 +1,5 @@
 /** Tap recognition only: the editor still owns target, modal, drag, and validation guards. */
-export const EDITOR_BACKGROUND_SELECTOR = '.fs-editor, .fs-visual-area, .fs-tree, .fs-tree-tail, .fs-tree-item, .fs-panel-heading, .fs-editor-toolbar, .fs-tree-help, .fs-selection-summary';
+export const EDITOR_BACKGROUND_SELECTOR = '.fs-app, .fs-main, .fs-workspace-grid, .fs-topbar, .fs-heading, .fs-editor, .fs-visual-area, .fs-tree, .fs-tree-tail, .fs-tree-item, .fs-panel-heading, .fs-editor-toolbar, .fs-tree-help, .fs-selection-summary';
 export const BACKGROUND_TAP_DISTANCE = 8;
 export const BACKGROUND_TAP_DURATION = 500;
 

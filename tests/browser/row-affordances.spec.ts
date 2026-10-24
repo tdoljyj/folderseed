@@ -103,13 +103,13 @@ for (const scenario of cases) {
       await page.mouse.move(0, 0);
       const before = await geometry(page, name);
       expect(before.gripFirst).toBe(true);
-      expect(before.grip.width).toBe(16);
+      expect(before.grip.width).toBe(scenario.width <= 600 ? 14 : 16);
       expect(before.gripHasIcon).toBe(depth > 0);
       expect(before.draggable).toBe(depth > 0);
       expect(before.count.y).toBeCloseTo(before.row.y, 1);
       expect(before.count.x + before.count.width).toBeCloseTo(before.item.x + before.item.width - 9, 1);
-      expect(before.glyph.x).toBeCloseTo(55 + depth * 22, 1);
-      expect(before.label.x).toBeCloseTo(83 + depth * 22, 1);
+      expect(before.glyph.x).toBeCloseTo((scenario.width <= 600 ? 41 : 55) + depth * (scenario.width <= 600 ? 14 : 22), 1);
+      expect(before.label.x).toBeCloseTo((scenario.width <= 600 ? 67 : 83) + depth * (scenario.width <= 600 ? 14 : 22), 1);
       expect(before.grip.x + before.grip.width).toBeLessThanOrEqual(before.disclosure!.x);
       expect(before.disclosure!.x + before.disclosure!.width).toBeLessThanOrEqual(before.glyph.x);
       await row(page, name).hover();
@@ -173,7 +173,7 @@ for (const scenario of cases) {
         first: parentRow.firstElementChild?.classList.contains('fs-drag-hint'), height: parentRow.getBoundingClientRect().height, draggable: parentRow.draggable };
     });
     expect(provisional.glyphX).toBeCloseTo(siblingGlyph, 1);
-    expect(provisional.inputX).toBeCloseTo(siblingGlyph + 28, 1);
+    expect(provisional.inputX).toBeCloseTo(siblingGlyph + (scenario.width <= 600 ? 26 : 28), 1);
     expect(provisional.first).toBe(true);
     expect(provisional.height).toBe(34);
     expect(provisional.draggable).toBe(false);

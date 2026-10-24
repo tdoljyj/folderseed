@@ -355,6 +355,14 @@ See [the embedding example](examples/embedding.tsx) and [architecture notes](doc
 - Browser font availability affects image appearance, especially emoji and less common scripts. Image exports do not bundle fonts.
 - Name validation improves portability, but total extracted path length, case rules, archive tools, and filesystem restrictions vary by platform. Keep deeply nested names short and inspect the destination when extracting.
 
+### Mobile editing and spacing
+
+Clicking or tapping a genuine blank area inside the owning workspace—including the gutters outside the editor card—clears selection. Controls, dialogs, scroll gestures, invalid inline edits, other editor instances, and unrelated host-page controls are not treated as blank workspace.
+
+Phone-width trees use a compact leading grip/disclosure area and 14 px nesting steps; desktop rows retain their existing geometry. Names gain space without moving on selection, while deep trees scroll inside the editor. Floating actions retain distinct 24 × 24 px targets.
+
+Inline comment, rename, and new-folder fields focus within the opening tap. Native editable controls use real 16 px text on narrow or touch screens to avoid small-font focus zoom; the app never disables pinch zoom or forcibly resets an intentional zoom. Browser tests check focus, computed font sizes, viewport bounds, and selection geometry. Chromium touch emulation does not reproduce every physical iOS keyboard/zoom behavior, so physical-device verification remains a separate check.
+
 ## Development and contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Keep public documentation, source comments, and commit messages in English. UI translations belong in the locale catalogs. International folder names and user-authored comments are supported and covered by validation and export tests.

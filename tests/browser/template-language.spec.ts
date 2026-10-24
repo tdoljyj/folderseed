@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
-import { flatten, formatText, parseJSON, parseText, type DirectoryDocument } from '../../src/core';
+import { flatten, formatText, parseJSON, parseText, type DirectoryDocument, type FolderNode } from '../../src/core';
 import type { Locale } from '../../src/ui/i18n';
 import { templateCommentMessages } from '../../src/ui/templateComments';
 
@@ -142,7 +142,10 @@ test('keeps old version-1/version-2 and identical imported phrases literal witho
   await load(page);
   const canonical = await model(page);
   const literal = structuredClone(canonical);
-  for (const { node } of flatten(literal)) delete node.commentBinding;
+  // flatten() returns validated copies; strip metadata from the actual import fixture.
+  function makeLiteral(node: FolderNode) { delete node.commentBinding; node.children.forEach(makeLiteral); }
+  makeLiteral(literal.root);
+  expect(flatten(literal).every(({ node }) => !node.commentBinding), 'legacy fixtures must contain no provenance metadata').toBe(true);
   for (const version of [1, 2, 'text'] as const) {
     await chooseLanguage(page, 'en');
     await importFile(page, version === 'text' ? formatText(literal, 'plain', 4) : JSON.stringify({ version, root: literal.root }), version === 'text' ? 'same-phrases.txt' : `legacy-${version}.json`);

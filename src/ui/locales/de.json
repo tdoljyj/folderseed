@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "Die Einrückung muss ein Vielfaches von {count} Leerzeichen sein.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "Ungültiger {format}-Baum. Verwende vollständige Verzweigungszeichen und einheitliche Verbindungsspalten mit jeweils vier Zeichen.",
   "Line {line}: {message}": "Zeile {line}: {message}",
-  "Editing folder name…": "Ordnername wird bearbeitet…"
+  "Editing folder name…": "Ordnername wird bearbeitet…",
+  "Move into next sibling": "In nächsten Ordner derselben Ebene verschieben",
+  "Move inside the next sibling folder": "In den nächsten Ordner auf derselben Ebene verschieben",
+  "Moved into the next sibling.": "In den nächsten Ordner derselben Ebene verschoben.",
+  "This folder has no sibling to move into.": "Es gibt keinen anderen Ordner auf derselben Ebene, in den dieser Ordner verschoben werden kann."
 }

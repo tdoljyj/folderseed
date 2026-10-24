@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "L’indentation doit être un multiple de {count} espaces.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "Arborescence {format} non valide. Utilisez des marqueurs de branche complets et des colonnes de connexion uniformes de quatre caractères.",
   "Line {line}: {message}": "Ligne {line} : {message}",
-  "Editing folder name…": "Modification du nom du dossier…"
+  "Editing folder name…": "Modification du nom du dossier…",
+  "Move into next sibling": "Déplacer dans le dossier suivant du même niveau",
+  "Move inside the next sibling folder": "Déplacer à l’intérieur du dossier suivant du même niveau",
+  "Moved into the next sibling.": "Déplacé dans le dossier suivant du même niveau.",
+  "This folder has no sibling to move into.": "Ce dossier n’a aucun autre dossier du même niveau dans lequel être déplacé."
 }

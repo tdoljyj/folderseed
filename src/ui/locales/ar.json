@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "يجب أن تكون المسافة البادئة من مضاعفات {count} مسافات.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "شجرة {format} غير صالحة. استخدم علامات فروع كاملة وأعمدة وصل متسقة بعرض أربعة محارف.",
   "Line {line}: {message}": "السطر {line}: {message}",
-  "Editing folder name…": "جارٍ تعديل اسم المجلد…"
+  "Editing folder name…": "جارٍ تعديل اسم المجلد…",
+  "Move into next sibling": "نقل إلى داخل المجلد التالي",
+  "Move inside the next sibling folder": "نقل إلى داخل المجلد التالي في المستوى نفسه",
+  "Moved into the next sibling.": "تم النقل إلى داخل المجلد التالي في المستوى نفسه.",
+  "This folder has no sibling to move into.": "لا يوجد مجلد آخر في المستوى نفسه للنقل إليه."
 }

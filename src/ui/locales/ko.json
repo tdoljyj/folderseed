@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "들여쓰기는 공백 {count}개의 배수여야 합니다.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "{format} 트리가 유효하지 않습니다. 가지 표시를 완전하게 쓰고 4문자 연결 열을 일정하게 맞추세요.",
   "Line {line}: {message}": "{line}행: {message}",
-  "Editing folder name…": "폴더 이름 편집 중…"
+  "Editing folder name…": "폴더 이름 편집 중…",
+  "Move into next sibling": "다음 폴더 안으로 이동",
+  "Move inside the next sibling folder": "바로 다음의 같은 단계 폴더 안으로 이동",
+  "Moved into the next sibling.": "바로 다음의 같은 단계 폴더 안으로 이동했습니다.",
+  "This folder has no sibling to move into.": "들어갈 수 있는 같은 단계 폴더가 없습니다."
 }

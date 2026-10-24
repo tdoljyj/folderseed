@@ -92,14 +92,12 @@ test('adds, renames, moves, reorders, deletes, and restores folders', async ({ p
   await page.getByRole('button', { name: 'Move up', exact: true }).click();
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Beta', 'Notes', 'Alpha']);
   await page.getByRole('button', { name: 'Delete folder', exact: true }).click();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.locator('.fs-folder-select[title="Notes"]')).toBeVisible();
-  await page.getByRole('button', { name: 'Delete folder', exact: true }).click();
-  await page.getByRole('button', { name: 'Remove folder', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.fs-folder-select[title="Notes"]')).toHaveCount(0);
   await expect(page.locator('.fs-folder-select[title="Beta"]')).toHaveCount(0);
   await expect(page.locator('.fs-folder-select[title="Project"]')).toHaveAttribute('aria-pressed', 'true');
   await expectEightFolderActions(page, 'Project');
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.locator('.fs-notice-undo').click();
   await expect(page.locator('.fs-folder-select[title="Notes"]')).toBeVisible();
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect(page.locator('.fs-folder-select[title="Beta"]')).toHaveCount(0);
@@ -1243,43 +1241,66 @@ test('keeps adjacent ancestor bands and their trailing whitespace free of dead d
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Other');
 });
 
-const folderActionNames = ['Move up', 'Move down', 'Move to parent level', 'Move into previous sibling', 'Add sibling folder', 'Add child folder', 'Rename', 'Delete folder'];
+const folderActionNames = { up: 'Move up', down: 'Move down', outdent: 'Move to parent level', indent: 'Move into previous sibling', 'add-sibling': 'Add sibling folder', 'add-child': 'Add child folder', rename: 'Rename', delete: 'Delete folder' };
 const folderActions = (page: Page, name: string) => page.getByRole('group', { name: `Folder actions for ${name}`, exact: true });
 
 async function expectEightFolderActions(page: Page, name: string) {
   const actions = folderActions(page, name);
   await expect(page.getByRole('group', { name: /^Folder actions for / })).toHaveCount(1);
-  await expect(actions.getByRole('button')).toHaveCount(8);
-  for (const actionName of folderActionNames) {
-    const button = actions.getByRole('button', { name: actionName, exact: true });
-    await expect(button).toBeVisible();
+  await expect(actions.locator('button')).toHaveCount(8);
+  const indentName = await folderRow(page, name).evaluate(row => {
+    const item = row.closest('.fs-tree-item')!;
+    return !item.previousElementSibling && item.nextElementSibling ? 'Move into next sibling' : 'Move into previous sibling';
+  });
+  for (const [action, label] of Object.entries(folderActionNames)) {
+    const actionName = action === 'indent' ? indentName : label;
+    const button = actions.locator(`button[data-action="${action}"]`);
+    await expect(button).toHaveAttribute('aria-label', actionName);
+    if (await button.isDisabled()) {
+      await expect(button).toBeHidden();
+      await expect(button).toHaveCSS('visibility', 'hidden');
+      await expect(button).toHaveCSS('pointer-events', 'none');
+    } else {
+      await expect(button).toBeVisible();
+      await expect(actions.getByRole('button', { name: actionName, exact: true })).toHaveCount(1);
+    }
     await expect(button.locator('svg')).toHaveCount(1);
     await expect(button.locator('svg')).toHaveAttribute('width', '16');
     await expect(button.locator('svg')).toHaveAttribute('height', '16');
   }
+  await expect(actions.getByRole('button')).toHaveCount(await actions.locator('button:not(:disabled)').count());
   return actions;
 }
 
-test('shows eight named icon actions immediately for the selected folder and protects root operations', async ({ page }) => {
+test('retains eight action slots while showing only available selected-folder operations', async ({ page }) => {
   await importText(page, 'Project\n  Alpha\n  Beta');
   await openFolderActions(page, 'Project');
   const rootActions = await expectEightFolderActions(page, 'Project');
-  for (const name of ['Move up', 'Move down', 'Move to parent level', 'Move into previous sibling', 'Add sibling folder', 'Delete folder']) {
-    await expect(rootActions.getByRole('button', { name, exact: true })).toBeDisabled();
+  for (const action of ['up', 'down', 'outdent', 'indent', 'add-sibling', 'delete']) {
+    const button = rootActions.locator(`[data-action="${action}"]`);
+    await expect(button).toBeDisabled();
+    await expect(button).toBeHidden();
   }
+  await expect(rootActions.getByRole('button')).toHaveCount(2);
   await expect(rootActions.getByRole('button', { name: 'Add child folder', exact: true })).toBeEnabled();
   await expect(rootActions.getByRole('button', { name: 'Rename', exact: true })).toBeEnabled();
   await expect(page.locator('.fs-add-folder')).toHaveCount(0);
   await openFolderActions(page, 'Alpha');
   const firstActions = await expectEightFolderActions(page, 'Alpha');
   await expect(rootActions).toHaveCount(0);
-  for (const name of ['Move up', 'Move to parent level', 'Move into previous sibling']) {
-    await expect(firstActions.getByRole('button', { name, exact: true })).toBeDisabled();
+  for (const action of ['up', 'outdent']) {
+    const button = firstActions.locator(`[data-action="${action}"]`);
+    await expect(button).toBeDisabled();
+    await expect(button).toBeHidden();
   }
+  await expect(firstActions.getByRole('button')).toHaveCount(6);
+  await expect(firstActions.getByRole('button', { name: 'Move into next sibling', exact: true })).toBeEnabled();
   await expect(firstActions.getByRole('button', { name: 'Move down', exact: true })).toBeEnabled();
   await openFolderActions(page, 'Beta');
   const lastActions = await expectEightFolderActions(page, 'Beta');
-  await expect(lastActions.getByRole('button', { name: 'Move down', exact: true })).toBeDisabled();
+  await expect(lastActions.locator('[data-action="down"]')).toBeDisabled();
+  await expect(lastActions.locator('[data-action="down"]')).toBeHidden();
+  await expect(lastActions.getByRole('button')).toHaveCount(6);
   await expect(lastActions.getByRole('button', { name: 'Move up', exact: true })).toBeEnabled();
   await expect(lastActions.getByRole('button', { name: 'Move into previous sibling', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Move', exact: true })).toHaveCount(1);
@@ -1313,7 +1334,8 @@ test('indents and outdents complete subtrees with predictable ordering, undo, an
   await folderActions(page, 'Moving').getByRole('button', { name: 'Move to parent level', exact: true }).click();
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Moving');
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
-  await expect(folderActions(page, 'Moving').getByRole('button', { name: 'Move to parent level', exact: true })).toBeDisabled();
+  await expect(folderActions(page, 'Moving').locator('[data-action="outdent"]')).toBeDisabled();
+  await expect(folderActions(page, 'Moving').locator('[data-action="outdent"]')).toBeHidden();
   await folderActions(page, 'Moving').getByRole('button', { name: 'Move into previous sibling', exact: true }).click();
   await expect(page.locator('.fs-selected-path')).toHaveText('Project/Parent/Moving');
   await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'Parent', 'Before', 'Later', 'Moving', 'Leaf', 'After']);
@@ -1389,7 +1411,8 @@ async function treeLayout(page: Page) {
 
 async function expectActionsReceivePointer(page: Page, name: string) {
   const actions = await expectEightFolderActions(page, name);
-  for (const button of await actions.getByRole('button').all()) {
+  for (const button of await actions.locator('button:not(:disabled)').all()) {
+    await expect(button).toBeVisible();
     await expect.poll(() => button.evaluate(element => {
       const box = element.getBoundingClientRect();
       return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button') === element;
@@ -1443,7 +1466,11 @@ async function expectSpatialFolderActions(page: Page, name: string) {
   const glyph = boxCenter(glyphBox);
   const boxes: Record<string, ActionBox> = {};
   for (const action of ['up', 'down', 'outdent', 'indent', 'add-sibling', 'add-child', 'rename', 'delete']) {
-    boxes[action] = (await actions.locator(`[data-action="${action}"]`).boundingBox())!;
+    boxes[action] = await actions.locator(`[data-action="${action}"]`).evaluate(element => {
+      // Hidden unavailable actions must retain their exact spatial slot.
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x, y, width, height };
+    });
     const box = boxes[action];
     expect(box.width, `${action} uniform target width`).toBe(24);
     expect(box.height, `${action} uniform target height`).toBe(24);
@@ -1812,8 +1839,8 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     const initialLayout = await treeLayout(page);
     for (const row of initialLayout.rows) expect(row.height).toBe(34);
     for (const [depth, name] of names.entries()) {
-      expect(anchors[depth].glyphX).toBeCloseTo(31 + depth * 22, 1);
-      expect(anchors[depth].nameX).toBeCloseTo(59 + depth * 22, 1);
+      expect(anchors[depth].glyphX).toBeCloseTo(55 + depth * 22, 1);
+      expect(anchors[depth].nameX).toBeCloseTo(83 + depth * 22, 1);
       await selectFolder(page, name);
       await expect(folderActions(page, name)).toBeVisible();
       await expectFolderAnchor(page, name, anchors[depth]);
@@ -1829,6 +1856,9 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
       expect(await treeLayout(page)).toEqual(initialLayout);
     }
     await selectFolder(page, names[LIMITS.depth]);
+    const unavailableChild = folderActions(page, names[LIMITS.depth]).locator('[data-action="add-child"]');
+    await expect(unavailableChild).toBeDisabled();
+    await expect(unavailableChild).toBeHidden();
     await expectFolderAnchor(page, names[LIMITS.depth], anchors[LIMITS.depth]);
     expect(await page.locator('.fs-tree').evaluate(tree => tree.scrollWidth > tree.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

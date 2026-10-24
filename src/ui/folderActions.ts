@@ -20,16 +20,17 @@ export function outdentFolder(document: DirectoryDocument, id: string): Director
   return moveFolder(document, id, grandparent.node.id, parentIndex + 1);
 }
 
-/** Append a subtree inside its immediate preceding sibling. */
+/** Append inside the previous sibling, or the next sibling when selected first. */
 export function indentFolder(document: DirectoryDocument, id: string): DirectoryDocument {
   const { rows, selected } = selection(document, id);
   if (selected.parentId === null) throw new DirectoryError('ROOT_OPERATION', 'The root folder cannot be moved.');
   const parent = rows.find(row => row.node.id === selected.parentId)!;
   const index = parent.node.children.findIndex(node => node.id === id);
-  if (index === 0) {
-    throw new DirectoryError('INDENT_UNAVAILABLE', 'This folder has no preceding sibling to move into.');
+  const destination = parent.node.children[index === 0 ? 1 : index - 1];
+  if (!destination) {
+    throw new DirectoryError('INDENT_UNAVAILABLE', 'This folder has no sibling to move into.');
   }
-  return moveFolder(document, id, parent.node.children[index - 1].id);
+  return moveFolder(document, id, destination.id);
 }
 
 /** Add an empty sibling immediately after the selection, as one document update. */

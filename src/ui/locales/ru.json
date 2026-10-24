@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "Отступ должен быть кратен {count} пробелам.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "Некорректное дерево {format}. Используйте полные маркеры ветвей и одинаковые столбцы соединителей по четыре символа.",
   "Line {line}: {message}": "Строка {line}: {message}",
-  "Editing folder name…": "Редактирование имени папки…"
+  "Editing folder name…": "Редактирование имени папки…",
+  "Move into next sibling": "Переместить в следующую папку того же уровня",
+  "Move inside the next sibling folder": "Переместить внутрь следующей папки того же уровня",
+  "Moved into the next sibling.": "Перемещено в следующую папку того же уровня.",
+  "This folder has no sibling to move into.": "У этой папки нет другой папки того же уровня, в которую можно её переместить."
 }

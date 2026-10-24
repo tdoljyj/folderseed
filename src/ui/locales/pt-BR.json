@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "O recuo deve ser um múltiplo de {count} espaços.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "Árvore {format} inválida. Use marcadores de ramo completos e colunas de conexão uniformes de quatro caracteres.",
   "Line {line}: {message}": "Linha {line}: {message}",
-  "Editing folder name…": "Editando o nome da pasta…"
+  "Editing folder name…": "Editando o nome da pasta…",
+  "Move into next sibling": "Mover para a próxima pasta do mesmo nível",
+  "Move inside the next sibling folder": "Mover para dentro da próxima pasta do mesmo nível",
+  "Moved into the next sibling.": "Movida para a próxima pasta do mesmo nível.",
+  "This folder has no sibling to move into.": "Esta pasta não tem outra pasta do mesmo nível para onde possa ser movida."
 }

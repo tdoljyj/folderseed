@@ -41,6 +41,18 @@ describe('complete runtime language catalogs', () => {
       for (const key of keys.filter(key => key.includes(token))) expect(t(key), key).toContain(token);
     }
   });
+  it.each(locales)('%s translates both sibling directions and the no-sibling fallback', locale => {
+    const t = createTranslator(locale);
+    for (const key of ['Move into next sibling', 'Move inside the next sibling folder', 'Moved into the next sibling.', 'This folder has no sibling to move into.']) {
+      expect(Object.hasOwn(catalogs[locale], key), key).toBe(true);
+      expect(t(key), key).toBe(catalogs[locale][key]);
+      expect(createErrorTranslator(locale)(key), key).toBe(catalogs[locale][key]);
+      if (locale !== 'en') expect(t(key), key).not.toBe(key);
+    }
+    expect(t('Move into next sibling')).not.toBe(t('Move into previous sibling'));
+    expect(t('Moved into the next sibling.')).not.toBe(t('Moved into the previous sibling.'));
+    expect(t('This folder has no sibling to move into.')).not.toBe(t('This folder has no preceding sibling to move into.'));
+  });
   it('falls back to unknown English source phrases without exposing object prototype values', () => {
     const t = createTranslator('fr');
     expect(t('Future feature {count}', { count: 2 })).toBe('Future feature 2');

@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "缩进必须是 {count} 个空格的倍数。",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "{format} 目录树无效。请使用完整的分支标记，并保持四字符连接列一致。",
   "Line {line}: {message}": "第 {line} 行：{message}",
-  "Editing folder name…": "正在编辑文件夹名称…"
+  "Editing folder name…": "正在编辑文件夹名称…",
+  "Move into next sibling": "移入后一个同级文件夹",
+  "Move inside the next sibling folder": "移动到后一个同级文件夹内",
+  "Moved into the next sibling.": "已移入后一个同级文件夹。",
+  "This folder has no sibling to move into.": "没有可以移入的同级文件夹。"
 }

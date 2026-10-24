@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "インデントはスペース {count} 個の倍数にしてください。",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "{format} ツリーが無効です。枝の記号を省略せず、4 文字幅の接続列を揃えてください。",
   "Line {line}: {message}": "{line} 行目: {message}",
-  "Editing folder name…": "フォルダー名を編集中…"
+  "Editing folder name…": "フォルダー名を編集中…",
+  "Move into next sibling": "直後の同階層フォルダー内へ",
+  "Move inside the next sibling folder": "直後の同階層フォルダーの中に移動",
+  "Moved into the next sibling.": "直後の同階層フォルダー内に移動しました。",
+  "This folder has no sibling to move into.": "移動先となる同階層のフォルダーがありません。"
 }

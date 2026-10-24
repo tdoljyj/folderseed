@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "La sangría debe ser un múltiplo de {count} espacios.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "Árbol {format} no válido. Usa marcadores de ramas completos y columnas de conexión uniformes de cuatro caracteres.",
   "Line {line}: {message}": "Línea {line}: {message}",
-  "Editing folder name…": "Editando el nombre de la carpeta…"
+  "Editing folder name…": "Editando el nombre de la carpeta…",
+  "Move into next sibling": "Mover a la carpeta siguiente del mismo nivel",
+  "Move inside the next sibling folder": "Mover dentro de la carpeta siguiente del mismo nivel",
+  "Moved into the next sibling.": "Se movió a la carpeta siguiente del mismo nivel.",
+  "This folder has no sibling to move into.": "Esta carpeta no tiene otra carpeta del mismo nivel a la que moverse."
 }

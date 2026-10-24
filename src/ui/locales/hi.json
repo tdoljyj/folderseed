@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "इंडेंट {count} स्पेस का गुणज होना चाहिए।",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "अमान्य {format} ट्री। शाखा के पूरे चिह्न और चार वर्णों वाले एकसमान जोड़ने के स्तंभ उपयोग करें।",
   "Line {line}: {message}": "पंक्ति {line}: {message}",
-  "Editing folder name…": "फ़ोल्डर का नाम संपादित हो रहा है…"
+  "Editing folder name…": "फ़ोल्डर का नाम संपादित हो रहा है…",
+  "Move into next sibling": "इसी स्तर के अगले फ़ोल्डर में ले जाएँ",
+  "Move inside the next sibling folder": "इसी स्तर के अगले फ़ोल्डर के अंदर ले जाएँ",
+  "Moved into the next sibling.": "इसी स्तर के अगले फ़ोल्डर के अंदर ले जाया गया।",
+  "This folder has no sibling to move into.": "इसी स्तर पर कोई दूसरा फ़ोल्डर नहीं है जिसमें इसे रखा जा सके।"
 }

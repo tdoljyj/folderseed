@@ -91,12 +91,79 @@ describe('indent folder', () => {
     expect(children(moved, 'Parent')).toEqual(['A', 'B', 'C']);
   });
 
-  it('rejects root and first siblings at every level', () => {
+  it('rejects the root and only children at every level', () => {
     const document = fixture();
     expectCode(() => indentFolder(document, document.root.id), 'ROOT_OPERATION');
-    for (const name of ['Before', 'A', 'A1', 'B1']) {
-      expectCode(() => indentFolder(document, row(document, name).node.id), 'INDENT_UNAVAILABLE');
+    expectCode(() => indentFolder(document, row(document, 'A1').node.id), 'INDENT_UNAVAILABLE');
+    const singleChain = parseText('Root\n  Only child\n    Only grandchild', 'plain');
+    for (const name of ['Only child', 'Only grandchild']) {
+      expectCode(() => indentFolder(singleChain, row(singleChain, name).node.id), 'INDENT_UNAVAILABLE');
     }
+  });
+
+  it('appends the first sibling and its entire subtree after the next sibling\'s existing children', () => {
+    const document = fixture();
+    const originalA = row(document, 'A').node;
+    const before = serializeJSON(document);
+    const moved = indentFolder(document, originalA.id);
+    expect(children(moved, 'Parent')).toEqual(['B', 'C']);
+    expect(children(moved, 'B')).toEqual(['B1', 'B2', 'A']);
+    expect(row(moved, 'A').node).toEqual(originalA);
+    expect(row(moved, 'A1').path).toBe('Root/Parent/B/A/A1');
+    expect(flatten(moved).map(item => item.node.id).sort()).toEqual(flatten(document).map(item => item.node.id).sort());
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('allows the first root child to become a child of the next root folder', () => {
+    const document = fixture();
+    const moved = indentFolder(document, row(document, 'Before').node.id);
+    expect(children(moved)).toEqual(['Parent', 'After']);
+    expect(children(moved, 'Parent')).toEqual(['A', 'B', 'C', 'Before']);
+    expect(row(moved, 'Before').path).toBe('Root/Parent/Before');
+  });
+
+  it('uses the immediate next sibling for a first child, even when it is empty', () => {
+    const document = fixture();
+    const moved = indentFolder(document, row(document, 'B1').node.id);
+    expect(children(moved, 'B')).toEqual(['B2']);
+    expect(children(moved, 'B2')).toEqual(['B1']);
+    expect(children(moved, 'Parent')).toEqual(['A', 'B', 'C']);
+  });
+
+  it('rejects conflicts in the next sibling without skipping to a later sibling or mutating input', () => {
+    const document = parseText('Root\n  Shared\n    Leaf\n  Next\n    shared\n  Later', 'plain');
+    const before = serializeJSON(document);
+    expectCode(() => indentFolder(document, row(document, 'Shared').node.id), 'DUPLICATE_NAME');
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('rejects first-sibling fallback when moving the subtree would exceed the depth limit', () => {
+    const chain = Array.from({ length: LIMITS.depth }, (_, depth) => `${'  '.repeat(depth + 1)}Level-${depth}`).join('\n');
+    const document = parseText(`Root\n${chain}\n  Next`, 'plain');
+    const before = serializeJSON(document);
+    expectCode(() => indentFolder(document, row(document, 'Level-0').node.id), 'TOO_DEEP');
+    expect(serializeJSON(document)).toBe(before);
+  });
+
+  it('supports first-sibling fallback on frozen input as a single undoable action', () => {
+    const document = fixture();
+    const sourceId = row(document, 'A').node.id;
+    const before = serializeJSON(document);
+    const freeze = (node: DirectoryDocument['root']): void => {
+      node.children.forEach(freeze);
+      Object.freeze(node.children);
+      Object.freeze(node);
+    };
+    freeze(document.root);
+    Object.freeze(document);
+    const next = indentFolder(document, sourceId);
+    expect(serializeJSON(document)).toBe(before);
+    const initial: HistoryState = { past: [], present: document, future: [] };
+    const committed = historyReducer(initial, { type: 'commit', document: next });
+    expect(committed.past).toEqual([document]);
+    const undone = historyReducer(committed, { type: 'undo' });
+    expect(undone.present).toBe(document);
+    expect(historyReducer(undone, { type: 'redo' }).present).toBe(next);
   });
 
   it('rejects a duplicate in the preceding sibling without mutation', () => {

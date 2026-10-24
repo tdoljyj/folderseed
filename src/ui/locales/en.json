@@ -256,5 +256,9 @@
   "Indentation must be a multiple of {count} spaces.": "Indentation must be a multiple of {count} spaces.",
   "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.": "Invalid {format} tree. Use complete branch markers and consistent four-character connector columns.",
   "Line {line}: {message}": "Line {line}: {message}",
-  "Editing folder name…": "Editing folder name…"
+  "Editing folder name…": "Editing folder name…",
+  "Move into next sibling": "Move into next sibling",
+  "Move inside the next sibling folder": "Move inside the next sibling folder",
+  "Moved into the next sibling.": "Moved into the next sibling.",
+  "This folder has no sibling to move into.": "This folder has no sibling to move into."
 }

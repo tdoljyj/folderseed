@@ -1,4 +1,4 @@
-import { Fragment, useId, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type CSSProperties, type MouseEvent, type ChangeEvent, type CompositionEvent } from 'react';
+import { Fragment, useId, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ChangeEvent, type CompositionEvent } from 'react';
 import { addFolder, flatten, formatIndented, formatTree, LIMITS, moveFolder, parseText, formatText, detectTextFormat, parseJSON, removeFolder, renameFolder, setFolderComment, serializeJSON, validateDocument, type DirectoryDocument, type FolderNode, type ParseIndent, type TextFormat } from '../core';
 import { createExport, type ExportFormat } from '../exports';
 import { Icon } from './Icon';
@@ -11,6 +11,8 @@ import { historyReducer, historyShortcut } from './history';
 import { addSiblingFolder, indentFolder, outdentFolder } from './folderActions';
 import { restoreTextFormat, type ExplicitTextFormat } from './draftFormat';
 import { makeTemplate, templates } from './templates';
+import { BackgroundTapTracker, EDITOR_BACKGROUND_SELECTOR } from './backgroundTap';
+import { useMobileHeader } from './mobileHeader';
 
 export interface FolderEditorProps {
   initialDocument?: DirectoryDocument;
@@ -94,6 +96,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const { t, translateError, locale, direction } = useI18n();
   const theme = useTheme(themeStorageKey);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const mobileHeaderHidden = useMobileHeader(sidebarRef, settingsOpen);
   const settingsTrigger = useRef<HTMLButtonElement | null>(null);
   const [initial] = useState(() => loadInitial(initialDocument, storageKey));
   const freshTemplateInitialized = useRef(!initial.freshTemplate);
@@ -127,6 +131,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const [dropTarget, setDropTarget] = useState<{ id: string; hoverId: string; placement: DropPlacement; invalid: boolean } | null>(null);
   const dragId = useRef<string | null>(null);
   const dragGesture = useRef(false);
+  const backgroundTap = useRef(new BackgroundTapTracker());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragToolbarId, setDragToolbarId] = useState<string | null>(null);
   const dragDescendants = useRef(new Set<string>());
@@ -145,7 +150,6 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const fileInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const inlineInput = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
-  const [commentBounds, setCommentBounds] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null);
   const rows = useMemo(() => flatten(doc), [doc]);
   const lastVisibleFolder = useMemo(() => {
     let node = doc.root;
@@ -192,28 +196,6 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       observer?.disconnect();
     };
   }, [actionOwnerId, doc, collapsed, mode]);
-  useLayoutEffect(() => {
-    const tree = treeRef.current;
-    const area = visualAreaRef.current;
-    const anchor = tree && Array.from(tree.querySelectorAll<HTMLButtonElement>('.fs-folder-select'))
-      .find(button => button.dataset.folderId === inlineEdit?.id)?.closest<HTMLElement>('.fs-tree-row');
-    if (inlineEdit?.kind !== 'comment' || !tree || !area || !anchor) { setCommentBounds(null); return; }
-    const update = () => {
-      const row = anchor.getBoundingClientRect();
-      const viewport = tree.getBoundingClientRect();
-      const origin = area.getBoundingClientRect();
-      const above = row.bottom + 46 > viewport.top + tree.clientHeight;
-      const anchoredTop = above ? row.top - origin.top - 44 : row.bottom - origin.top + 4;
-      const top = Math.max(viewport.top - origin.top + 4, Math.min(anchoredTop, viewport.top + tree.clientHeight - origin.top - 44));
-      setCommentBounds({ top, left: viewport.left - origin.left + 8, width: Math.max(128, tree.clientWidth - 16), above });
-    };
-    update();
-    tree.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
-    observer?.observe(tree); observer?.observe(area);
-    return () => { tree.removeEventListener('scroll', update); window.removeEventListener('resize', update); observer?.disconnect(); };
-  }, [inlineEdit?.kind, inlineEdit?.id, doc, collapsed, mode]);
   const levelActions = useMemo(() => {
     const result = { outdent: '', indent: '' };
     if (!selected) return { outdent: 'Select a folder first.', indent: 'Select a folder first.' };
@@ -423,15 +405,33 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   function focusFolder(id: string) { requestAnimationFrame(() => focusFolderNow(id)); }
   function selectFolder(id: string) { if (inlineRef.current && !finishInline()) return; setSelectedId(id); }
   function clearSelection(focusEditor = false) {
-    if (inlineRef.current && !finishInline()) return;
+    if (inlineRef.current && !finishInline(false)) return;
     setSelectedId(null);
     if (focusEditor) editorRef.current?.focus({ preventScroll: true });
   }
+  function isEditorBackground(target: EventTarget | null) {
+    return target instanceof Element && target.matches(EDITOR_BACKGROUND_SELECTOR);
+  }
+  function backgroundInteractionBlocked() {
+    return !!(modal || settingsOpen || draggingId || dragId.current || dragGesture.current);
+  }
+  function editorScrollPositions() {
+    const positions = [window.scrollX, window.scrollY, treeRef.current?.scrollLeft ?? 0, treeRef.current?.scrollTop ?? 0];
+    for (let node: HTMLElement | null = editorRef.current; node; node = node.parentElement) positions.push(node.scrollLeft, node.scrollTop);
+    return positions;
+  }
+  function handleBackgroundPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    dragGesture.current = false;
+    backgroundTap.current.start(event, !backgroundInteractionBlocked() && isEditorBackground(event.target), editorScrollPositions());
+  }
+  function handleBackgroundPointerUp(event: ReactPointerEvent<HTMLElement>) {
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    if (backgroundTap.current.end(event, isEditorBackground(target), editorScrollPositions()) && !backgroundInteractionBlocked()) clearSelection(true);
+  }
   function handleEditorBackgroundClick(event: MouseEvent<HTMLElement>) {
-    if (modal || settingsOpen || draggingId || dragId.current || dragGesture.current) return;
-    const target = event.target;
-    // Only the actual background owns this gesture, never a row, button, or dialog descendant.
-    if (target instanceof Element && target.matches('.fs-editor, .fs-visual-area, .fs-tree, .fs-tree-tail, .fs-tree-item, .fs-panel-heading, .fs-editor-toolbar, .fs-tree-help, .fs-selection-summary')) clearSelection(true);
+    if (backgroundTap.current.ignoreCompatibilityClick(event.nativeEvent) || backgroundInteractionBlocked()) return;
+    // Mouse/keyboard clicks retain the same scoped background rule; touch clears on a validated release.
+    if (isEditorBackground(event.target)) clearSelection(true);
   }
   function updateInline(next: InlineEdit | null) { inlineRef.current = next; setInlineEdit(next); }
   function beginInline(kind: InlineEdit['kind'], id: string, afterId?: string) {
@@ -480,9 +480,10 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       ref: (element: HTMLInputElement | HTMLTextAreaElement | null) => { inlineInput.current = element; },
       className: `fs-inline-name ${isComment ? 'fs-inline-comment' : ''}`,
       'aria-label': t(isComment ? 'Folder comment' : 'Folder name'),
-      title: isComment ? t('Edit comment for {name}', { name: rows.find(row => row.node.id === edit.id)?.node.name ?? '' }) : undefined,
+      title: isComment ? edit.error ? translateError(edit.error) : t('Edit comment for {name}', { name: rows.find(row => row.node.id === edit.id)?.node.name ?? '' }) : undefined,
       'aria-invalid': !!edit.error,
       'aria-describedby': edit.error ? inlineErrorId : undefined,
+      'aria-keyshortcuts': 'Enter Escape',
       value: edit.value,
       placeholder: t(isComment ? 'Add comment' : 'New folder'),
       maxLength: isComment ? LIMITS.commentLength * 2 : 200,
@@ -507,10 +508,10 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
       if (inlineRef.current) finishInline(false);
     }}>
-      {isComment ? <textarea {...fieldProps} rows={1}/> : <input {...fieldProps}/>}
+      {isComment ? <textarea {...fieldProps} rows={1} cols={1} wrap="off"/> : <input {...fieldProps}/>}
       <button type="button" className="fs-inline-save" aria-label={t(isComment ? 'Save comment' : 'Save name')} title={t(isComment ? 'Save comment' : 'Save name')} onMouseDown={event => event.preventDefault()} onClick={() => finishInline()}><Icon name="check" size={16}/></button>
       <button type="button" className="fs-inline-cancel" aria-label={t(isComment ? 'Cancel comment' : 'Cancel editing')} title={t(isComment ? 'Cancel comment' : 'Cancel editing')} onMouseDown={event => event.preventDefault()} onClick={cancelInline}><Icon name="close" size={16}/></button>
-      {edit.error && <span className="fs-inline-error" id={inlineErrorId} role="alert">{translateError(edit.error)}</span>}
+      {edit.error && !isComment && <span className="fs-inline-error" id={inlineErrorId} role="alert">{translateError(edit.error)}</span>}
     </div>;
   }
   function renderPlaceholder(level: number) {
@@ -585,7 +586,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     catch (error) { notify(errorMessage(error), true); }
   }
   function startFolderDrag(event: DragEvent<HTMLElement>, node: FolderNode, level: number) {
-    event.stopPropagation();
+    event.stopPropagation(); backgroundTap.current.cancel();
     if (!level || inlineRef.current) { event.preventDefault(); return; }
     dragId.current = node.id; dragGesture.current = true; setDragToolbarId(actionOwnerId); setDraggingId(node.id);
     dragDescendants.current = new Set(flatten({ version: 1, root: node }).map(row => row.node.id));
@@ -692,11 +693,13 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
         {editing ? <div className="fs-folder-select"><span className={`fs-folder-icon ${level === 0 ? 'root' : ''}`}><Icon name="folder" size={20}/></span>{renderInlineName()}</div> : <button type="button" className="fs-folder-select" data-folder-id={node.id} aria-pressed={isSelected} onClick={() => selectFolder(node.id)} title={node.name}><span className={`fs-folder-icon ${level === 0 ? 'root' : ''}`}><Icon name="folder" size={20}/></span><span className="fs-folder-name">{node.name}</span>{level === 0 && <span className="fs-root-label">{t("ROOT")}</span>}</button>}
       </div>
       </div>
-      <button type="button" className={`fs-folder-comment ${node.comment ? '' : 'is-empty'}`} data-comment-for={node.id} dir="auto"
+      {inlineEdit?.kind === 'comment' && inlineEdit.id === node.id ? <div className={`fs-folder-comment is-editing ${node.comment ? '' : 'is-empty'}`} data-comment-for={node.id} dir="auto" title={node.comment || t('Add comment')}>
+        {renderInlineName()}
+      </div> : <button type="button" className={`fs-folder-comment ${node.comment ? '' : 'is-empty'}`} data-comment-for={node.id} dir="auto"
         aria-label={t('Edit comment for {name}', { name: node.name })} title={node.comment || t('Add comment')} disabled={!!draggingId || !!inlineEdit && inlineEdit.kind !== 'comment'}
         onClick={() => { if (!dragGesture.current) beginInline('comment', node.id); }} draggable={level > 0 && !inlineEdit}
         onDragStart={event => startFolderDrag(event, node, level)} onDragEnd={event => finishFolderDrag(event, node.id)}
-        onDragOver={event => dragOver(event, node.id, level === 0)} onDrop={event => drop(event, node.id, level === 0)}>{node.comment || t('Add comment')}</button>
+        onDragOver={event => dragOver(event, node.id, level === 0)} onDrop={event => drop(event, node.id, level === 0)}>{node.comment || t('Add comment')}</button>}
       <span className="fs-row-count">{node.children.length || ''}</span>
       {!isCollapsed && (node.children.length > 0 || addingChild) && <ul>{node.children.map(child => renderFolder(child, level + 1))}{addingChild && renderPlaceholder(level + 1)}</ul>}
       {target && !target.invalid && target.placement !== 'inside' && <span className={`fs-drop-line is-${target.placement}`} style={{ left: 12 + level * 22 }} aria-hidden="true"/>}
@@ -728,7 +731,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
   const descendants = modalRow ? new Set(flatten({ version: 1, root: modalRow.node }).map(row => row.node.id)) : new Set<string>();
 
   return <div className="fs-app" lang={locale} dir={direction} data-theme={theme.resolvedTheme} data-theme-preference={theme.preference} ref={appRef} onKeyDown={handleHistoryKey}>
-    <aside className="fs-sidebar">
+    <aside className={`fs-sidebar ${mobileHeaderHidden ? 'is-scroll-hidden' : ''}`} ref={sidebarRef}>
       <a className="fs-brand" href="#workspace" aria-label={t("FolderSeed workspace")}><span className="fs-brand-mark"><Icon name="seed" size={26}/></span><span><span className="fs-brand-name">FolderSeed</span><span className="fs-brand-subtitle">{t("A little structure goes a long way.")}</span></span></a>
       <div className="fs-sidebar-navigation">
       <div className="fs-sidebar-section"><span className="fs-eyebrow">{t("YOUR WORKSPACE")}</span><a className="fs-nav-active" href="#workspace"><Icon name="tree"/>{t("Folder builder")}<span className="fs-nav-dot"/></a></div>
@@ -743,14 +746,14 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       <section className="fs-heading"><div><span className="fs-eyebrow">{t("FROM A SMALL SEED, A CLEARER SPACE")}</span><h1>{t("A little structure.")}<br className="fs-mobile-break"/> {t("A fresh start.")}</h1><p>{t("Shape your folders, make them yours, and take them anywhere.")}</p></div><button type="button" className="fs-button fs-import" disabled={blockedDraft} onClick={() => fileInput.current?.click()}><Icon name="upload"/>{t("Import structure")}</button><input type="file" accept=".json,.txt,.md,.markdown,.ascii,.tree,text/plain,application/json" ref={fileInput} hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file); }}/></section>
       <div className="fs-mobile-templates"><span><Icon name="spark" size={15}/>{t("Need a starting point?")}</span><select aria-label={t("Choose a template")} value="" disabled={blockedDraft} onChange={event => { if (event.target.value !== '') openModal({ kind: 'template', index: Number(event.target.value) }); }}><option value="" disabled>{t("Choose a template")}</option>{templates.map((template, index) => <option key={template.id} value={index}>{t(template.name)}</option>)}</select></div>
       <div className="fs-workspace-grid">
-        <section className="fs-panel fs-editor" aria-label={t("Folder editor")} ref={editorRef} tabIndex={-1} onPointerDownCapture={() => { dragGesture.current = false; }} onClick={handleEditorBackgroundClick}>
+        <section className="fs-panel fs-editor" aria-label={t("Folder editor")} ref={editorRef} tabIndex={-1} onPointerDownCapture={handleBackgroundPointerDown} onPointerMoveCapture={event => backgroundTap.current.move(event)} onPointerUpCapture={handleBackgroundPointerUp} onPointerCancelCapture={() => backgroundTap.current.cancel()} onScrollCapture={() => backgroundTap.current.cancel()} onClick={handleEditorBackgroundClick}>
           <div className="fs-panel-heading"><div><span className="fs-step">01</span><h2>{t("Make it yours")}</h2></div><div className="fs-history"><button type="button" aria-label={t("Undo")} title={t("Undo (Ctrl/Cmd+Z)")} aria-keyshortcuts="Control+Z Meta+Z" disabled={(!history.past.length && !textDirty) || blockedDraft} onClick={() => historyStep('undo')}><Icon name="undo" size={17}/></button><button type="button" aria-label={t("Redo")} title={t("Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)")} aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y" disabled={!history.future.length || textDirty || blockedDraft} onClick={() => historyStep('redo')}><Icon name="redo" size={17}/></button></div></div>
           <div className="fs-editor-toolbar">
             <div className="fs-editor-tabs"><button type="button" aria-pressed={mode === 'visual'} aria-controls="visual-editor" onClick={() => { if (flushText()) setMode('visual'); }}><Icon name="tree" size={16}/>{t("Visual editor")}</button></div>
             <FormatSwitch value={textFormat === 'auto' ? 'plain' : textFormat} active={mode === 'text'} disabled={composing} onActivate={() => { if (flushText()) setMode('text'); }} onSelect={changeTextFormat}/>
           </div>
           {mode === 'visual' ? <div id="visual-editor" role="region" aria-label={t("Visual editor")} className="fs-visual-area" ref={visualAreaRef}>
-            <div className="fs-tree-help"><span>{t(rows.length === 1 ? "{count} folder" : "{count} folders", { count: rows.length })}</span><span aria-live="polite" title={translateError(dropHint)}>{translateError(dropHint)}</span></div>
+            <div className="fs-tree-help"><span>{t(rows.length === 1 ? "{count} folder" : "{count} folders", { count: rows.length })}</span>{inlineEdit?.kind === 'comment' && inlineEdit.error ? <span className="fs-comment-error" id={inlineErrorId} role="alert" title={translateError(inlineEdit.error)}>{translateError(inlineEdit.error)}</span> : <span aria-live="polite" title={translateError(dropHint)}>{translateError(dropHint)}</span>}</div>
             <ul className="fs-tree" aria-label={t("Folder list")} ref={treeRef}
               onDragOver={event => { if (isTrailingSpace(event)) dragOver(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
               onDrop={event => { if (isTrailingSpace(event)) drop(event, lastVisibleFolder.id, lastVisibleFolder.id === doc.root.id, 'tail'); }}
@@ -767,7 +770,6 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
               </li>}
             </ul>
             {renderFloatingActions()}
-            {inlineEdit?.kind === 'comment' && commentBounds && <div className={`fs-comment-editor ${commentBounds.above ? 'is-above' : ''}`} style={{ top: commentBounds.top, left: commentBounds.left, width: commentBounds.width }} title={t('Comments stay separate from folder names.')}>{renderInlineName()}</div>}
             {rows.length === 1 && <div className="fs-empty-hint"><Icon name="spark" size={23}/><p>{t("Every good structure starts somewhere.")}<br/>{t("Select the root, then add a child folder.")}</p></div>}
             <div className={`fs-selection-summary ${selected ? '' : 'is-empty'}`}>{selected && <><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><button type="button" className="fs-advanced-move" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={14}/>{t("Move")}</button></>}</div>
           </div> : <div id="text-editor" role="region" aria-label={t("Text editor")} className="fs-text-area">

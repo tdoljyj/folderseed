@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "نقل إلى داخل المجلد التالي في المستوى نفسه",
   "Moved into the next sibling.": "تم النقل إلى داخل المجلد التالي في المستوى نفسه.",
   "This folder has no sibling to move into.": "لا يوجد مجلد آخر في المستوى نفسه للنقل إليه.",
-  "Add comment": "إضافة تعليق",
+  "Add comment": "تعليق اختياري",
   "Edit comment for {name}": "تعديل تعليق {name}",
   "Folder comment": "تعليق المجلد",
   "Save comment": "حفظ التعليق",

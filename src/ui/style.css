@@ -3065,34 +3065,56 @@
   font-size: 11px;
   font-weight: 400;
 }
-.fs-app .fs-folder-comment.is-empty { color: #8b929d; }
+.fs-app .fs-folder-comment.is-empty { color: #6c7480; font-style: italic; }
 .fs-app .fs-folder-comment:hover:not(:disabled),
 .fs-app .fs-folder-comment:focus-visible { color: #365c8d; background: #eef4fc; }
 .fs-app .fs-folder-comment:disabled { opacity: .55; cursor: default; pointer-events: none; }
 /* Naming temporarily borrows its own row's comment column, not its pointer targets. */
 .fs-app .fs-tree-item:has(> .fs-folder-frame .fs-inline-editor) > .fs-folder-comment { visibility: hidden; }
 .fs-app .fs-folder-frame .fs-inline-editor { z-index: 2; }
-.fs-app .fs-comment-editor {
-  position: absolute;
-  z-index: 14;
-  height: 40px;
-  padding: 5px;
-  border: 1px solid #bdcfe6;
-  border-radius: 6px;
+/* Editing stays in the same comment cell; no overlay or layout expansion. */
+.fs-app .fs-folder-comment.is-editing {
+  container: fs-comment-cell / inline-size;
+  padding: 0;
+  text-overflow: clip;
+  border-color: #8eb7e8;
   background: #fff;
-  box-shadow: 0 4px 14px #172c4d24;
-  direction: ltr;
+  color: var(--fs-ink);
 }
-.fs-app .fs-comment-editor .fs-inline-editor { width: 100%; min-width: 0; max-width: none; height: 28px; }
-.fs-app .fs-comment-editor .fs-inline-comment {
+.fs-app .fs-folder-comment.is-editing:hover { background: #fff; }
+.fs-app .fs-folder-comment.is-editing > .fs-inline-editor {
+  width: 100%;
   min-width: 0;
-  height: 28px;
+  max-width: none;
+  height: 100%;
+  gap: 2px;
+}
+.fs-app .fs-folder-comment.is-editing .fs-inline-comment {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
   resize: none;
   white-space: pre;
-  overflow: auto;
-  scrollbar-width: thin;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  font-size: 11px;
+  line-height: 28px;
 }
-.fs-app .fs-comment-editor.is-above .fs-inline-error { top: auto; bottom: calc(100% + 10px); }
+.fs-app .fs-folder-comment.is-editing .fs-inline-comment:focus-visible { outline-offset: -2px; }
+.fs-app .fs-folder-comment.is-editing .fs-inline-comment::placeholder { color: #6c7480; font-style: italic; opacity: 1; }
+.fs-app .fs-folder-comment.is-editing :is(.fs-inline-save, .fs-inline-cancel) { box-shadow: none; }
+/* Container width excludes the two 1 px borders: 130 content pixels = 132 outside. */
+@container fs-comment-cell (width < 130px) {
+  .fs-app .fs-folder-comment.is-editing :is(.fs-inline-save, .fs-inline-cancel) { display: none; }
+}
+.fs-app .fs-tree-help .fs-comment-error { color: #a33c32; }
 .fs-app .fs-preview-comment {
   flex: 0 1 220px;
   min-width: 0;
@@ -3107,11 +3129,58 @@
 }
 .fs-app[data-theme='dark'] .fs-folder-comment,
 .fs-app[data-theme='dark'] .fs-preview-comment { color: #a2adbc; }
-.fs-app[data-theme='dark'] .fs-folder-comment.is-empty { color: #8793a3; }
+.fs-app[data-theme='dark'] .fs-folder-comment.is-empty { color: #9ba7b7; }
 .fs-app[data-theme='dark'] .fs-folder-comment:hover:not(:disabled),
 .fs-app[data-theme='dark'] .fs-folder-comment:focus-visible { color: #d6e6fc; background: #29394d; }
-.fs-app[data-theme='dark'] .fs-comment-editor { border-color: #526b8c; background: #222d3c; box-shadow: 0 4px 14px #0005; }
+.fs-app[data-theme='dark'] .fs-folder-comment.is-editing,
+.fs-app[data-theme='dark'] .fs-folder-comment.is-editing:hover { border-color: #7398c5; background: #20252e; color: #e0e6ef; }
+.fs-app[data-theme='dark'] .fs-folder-comment.is-editing .fs-inline-comment::placeholder { color: #9ba7b7; }
+.fs-app[data-theme='dark'] .fs-tree-help .fs-comment-error { color: #f1aaa5; }
 @container (max-width: 400px) {
   .fs-app .fs-tree-row .fs-root-label { display: none; }
 }
 .fs-app .fs-preview-canvas { flex: 0 0 auto; }
+
+/* Give mobile Settings its own fixed track instead of competing with brand text.
+   The header remains in normal flow, then sticks while the workspace scrolls. */
+@media (max-width: 800px) {
+  .fs-app { min-width: 0; max-width: 100%; }
+  .fs-app .fs-main { min-width: 0; max-width: 100%; }
+  .fs-app .fs-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 45;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+    column-gap: 12px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    padding-top: calc(14px + env(safe-area-inset-top, 0px));
+    padding-bottom: 14px;
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+    background: var(--fs-surface);
+  }
+  .fs-app .fs-sidebar > .fs-brand { grid-column: 1; width: auto; min-width: 0; max-width: none; }
+  .fs-app .fs-sidebar > .fs-brand > span:last-child { flex: 1 1 0; min-width: 0; }
+  .fs-app .fs-sidebar-navigation { display: none; }
+  .fs-app .fs-sidebar > .fs-app-menu-mobile {
+    grid-column: 2;
+    justify-self: end;
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    margin-inline: 0;
+  }
+  .fs-app .fs-notice > span { min-width: 0; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 800px) {
+  .fs-app .fs-sidebar { transition: transform 160ms ease; }
+  .fs-app .fs-sidebar.is-scroll-hidden { transform: translateY(-100%); pointer-events: none; }
+}
+@media (max-width: 800px) and (prefers-reduced-motion: reduce) {
+  .fs-app .fs-sidebar { transition: none; }
+}

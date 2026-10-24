@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "移动到后一个同级文件夹内",
   "Moved into the next sibling.": "已移入后一个同级文件夹。",
   "This folder has no sibling to move into.": "没有可以移入的同级文件夹。",
-  "Add comment": "添加注释",
+  "Add comment": "可添加注释",
   "Edit comment for {name}": "编辑 {name} 的注释",
   "Folder comment": "文件夹注释",
   "Save comment": "保存注释",

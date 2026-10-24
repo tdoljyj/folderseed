@@ -15,6 +15,17 @@ const placeholders = (value: string) => [...value.matchAll(/\{([a-zA-Z][a-zA-Z0-
 afterEach(() => vi.unstubAllGlobals());
 
 describe('complete runtime language catalogs', () => {
+  it('uses optional empty-comment hints without changing populated comment messages', () => {
+    expect(createTranslator('en')('Add comment')).toBe('Optional comment');
+    expect(createTranslator('zh-CN')('Add comment')).toBe('可添加注释');
+    expect(createTranslator('zh-TW')('Add comment')).toBe('可新增註解');
+    for (const locale of locales) {
+      expect(Object.keys(catalogs[locale]).sort()).toEqual([...keys].sort());
+      expect(createTranslator(locale)('Add comment')).not.toBe('Add comment');
+      expect(createTranslator(locale)('Edit comment for {name}', { name: 'Existing folder' })).toContain('Existing folder');
+    }
+  });
+
   it('offers the twelve requested locales with native display names', () => {
     expect(locales).toEqual(['en', 'zh-CN', 'zh-TW', 'es', 'fr', 'de', 'pt-BR', 'ja', 'ko', 'ar', 'hi', 'ru']);
     expect(new Set(SUPPORTED_LANGUAGES.map(language => language.label)).size).toBe(12);

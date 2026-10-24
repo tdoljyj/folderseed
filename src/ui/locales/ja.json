@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "直後の同階層フォルダーの中に移動",
   "Moved into the next sibling.": "直後の同階層フォルダー内に移動しました。",
   "This folder has no sibling to move into.": "移動先となる同階層のフォルダーがありません。",
-  "Add comment": "コメントを追加",
+  "Add comment": "コメント（任意）",
   "Edit comment for {name}": "{name} のコメントを編集",
   "Folder comment": "フォルダーのコメント",
   "Save comment": "コメントを保存",

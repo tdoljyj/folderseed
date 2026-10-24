@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "Move inside the next sibling folder",
   "Moved into the next sibling.": "Moved into the next sibling.",
   "This folder has no sibling to move into.": "This folder has no sibling to move into.",
-  "Add comment": "Add comment",
+  "Add comment": "Optional comment",
   "Edit comment for {name}": "Edit comment for {name}",
   "Folder comment": "Folder comment",
   "Save comment": "Save comment",

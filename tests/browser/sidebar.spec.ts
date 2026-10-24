@@ -184,26 +184,38 @@ test('keeps the Arabic desktop sidebar and its popup in bounds without changing 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('preserves the mobile scrolling header and keeps its Settings menu reachable', async ({ page }, testInfo) => {
+test('hides the mobile header on downward page scroll and reveals it upward without moving content', async ({ page }, testInfo) => {
   await loadApp(page, 360, 800);
   await expect(navigation(page)).not.toBeVisible();
   await expect(page.locator('.fs-sidebar-footer')).not.toBeVisible();
   await expect(trigger(page)).toHaveCount(1);
   const initial = (await sidebar(page).boundingBox())!;
+  const brand = await sidebar(page).locator('.fs-brand').boundingBox();
+  const button = await trigger(page).boundingBox();
   const target = Math.min(500, (await pageScroll(page)).max);
   expect(target).toBeGreaterThan(initial.height);
   await wheelMainTo(page, target);
+  await expect(sidebar(page)).toHaveClass(/is-scroll-hidden/);
+  await expect.poll(async () => { const box = (await sidebar(page).boundingBox())!; return box.y + box.height; }).toBeLessThanOrEqual(0.5);
   const scrolled = (await sidebar(page).boundingBox())!;
-  expect(scrolled.y).toBeCloseTo(initial.y - target, 0);
+  expect(scrolled.width).toBe(initial.width);
   expect(scrolled.height).toBe(initial.height);
-  expect(scrolled.y + scrolled.height).toBeLessThan(0);
-  await wheelMainTo(page, 0);
+  await wheelMainTo(page, target - 40);
+  await expect(sidebar(page)).not.toHaveClass(/is-scroll-hidden/);
+  await expect.poll(async () => (await sidebar(page).boundingBox())!.y).toBeCloseTo(0, 1);
+  expect(await sidebar(page).locator('.fs-brand').boundingBox()).toEqual(brand);
+  expect(await trigger(page).boundingBox()).toEqual(button);
   await clickVisibleCenter(trigger(page));
   await expectPopupInsideViewport(page);
-  await page.screenshot({ path: testInfo.outputPath('sidebar-mobile-menu.png') });
+  await page.screenshot({ path: testInfo.outputPath('sidebar-mobile-revealed-menu.png') });
   await clickVisibleCenter(menu(page).getByRole('menuitem'));
   await expect(settings(page)).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(trigger(page)).toBeFocused();
+  expect((await pageScroll(page)).y).toBeCloseTo(target - 40, 0);
+  await expect(sidebar(page)).not.toHaveClass(/is-scroll-hidden/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await wheelMainTo(page, 0);
+  await expect.poll(async () => (await sidebar(page).boundingBox())!.y).toBeCloseTo(0, 1);
+  expect(await sidebar(page).boundingBox()).toEqual(initial);
 });

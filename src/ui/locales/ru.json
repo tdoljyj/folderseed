@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "Переместить внутрь следующей папки того же уровня",
   "Moved into the next sibling.": "Перемещено в следующую папку того же уровня.",
   "This folder has no sibling to move into.": "У этой папки нет другой папки того же уровня, в которую можно её переместить.",
-  "Add comment": "Добавить комментарий",
+  "Add comment": "Необязательный комментарий",
   "Edit comment for {name}": "Изменить комментарий к {name}",
   "Folder comment": "Комментарий к папке",
   "Save comment": "Сохранить комментарий",

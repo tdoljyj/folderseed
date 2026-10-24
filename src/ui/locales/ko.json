@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "바로 다음의 같은 단계 폴더 안으로 이동",
   "Moved into the next sibling.": "바로 다음의 같은 단계 폴더 안으로 이동했습니다.",
   "This folder has no sibling to move into.": "들어갈 수 있는 같은 단계 폴더가 없습니다.",
-  "Add comment": "주석 추가",
+  "Add comment": "주석 (선택 사항)",
   "Edit comment for {name}": "{name} 주석 편집",
   "Folder comment": "폴더 주석",
   "Save comment": "주석 저장",

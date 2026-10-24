@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "Mover dentro de la carpeta siguiente del mismo nivel",
   "Moved into the next sibling.": "Se movió a la carpeta siguiente del mismo nivel.",
   "This folder has no sibling to move into.": "Esta carpeta no tiene otra carpeta del mismo nivel a la que moverse.",
-  "Add comment": "Añadir comentario",
+  "Add comment": "Comentario opcional",
   "Edit comment for {name}": "Editar comentario de {name}",
   "Folder comment": "Comentario de la carpeta",
   "Save comment": "Guardar comentario",

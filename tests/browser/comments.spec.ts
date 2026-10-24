@@ -9,7 +9,8 @@ const DRAFT_KEY = 'folderseed:draft:v1';
 const folder = (page: Page, name: string) => page.locator(`.fs-folder-select[title="${name}"]`);
 const item = (page: Page, name: string) => folder(page, name).locator('..').locator('..').locator('..');
 const comment = (page: Page, name: string) => item(page, name).locator(':scope > .fs-folder-comment');
-const commentInput = (page: Page) => page.locator('.fs-comment-editor .fs-inline-comment');
+const commentInput = (page: Page) => page.locator('.fs-folder-comment.is-editing .fs-inline-comment');
+const commentError = (page: Page) => page.locator('.fs-tree-help .fs-comment-error[role="alert"]');
 const action = (page: Page, name: string) => page.locator(`.fs-context-actions [data-action="${name}"]`);
 const plain = 'Project // Project note\n    Alpha // Original note\n        Nested // Keep with nested folder\n    Beta';
 
@@ -116,8 +117,21 @@ test('provides editable comments for every folder in all four starting templates
   expect(total).toBe(29);
 });
 
+test('presents empty comment cells as optional rather than a required action', async ({ page }) => {
+  await load(page, 'zh-CN');
+  await importFile(page, 'Project\n    Empty');
+  await expect(comment(page, 'Empty')).toHaveText('可添加注释');
+  await expect(comment(page, 'Empty')).toHaveAttribute('title', '可添加注释');
+  await page.mouse.move(0, 0);
+  await expect(comment(page, 'Empty')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(comment(page, 'Empty')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+  await language(page, 'en');
+  await expect(comment(page, 'Empty')).toHaveText('Optional comment');
+  await expectComment(page, 'Empty', '');
+});
+
 test('adds, edits, cancels, removes, and undoes comments without renaming folders or capturing native input undo', async ({ page }) => {
-  await load(page);
+  await load(page, 'en', 1920);
   await importFile(page, 'Project\n    Alpha\n    Beta');
   await editComment(page, 'Alpha');
   await commentInput(page).fill('First note');
@@ -171,7 +185,7 @@ test('defers IME commits and rejects overlong or multiline comments without leak
     await editComment(page, 'Alpha');
     await commentInput(page).fill(invalid);
     await commentInput(page).press('Enter');
-    await expect(page.locator('.fs-comment-editor [role="alert"]')).toBeVisible();
+    await expect(commentError(page)).toBeVisible();
     await expect(commentInput(page)).toHaveAttribute('aria-invalid', 'true');
     await expect(commentInput(page)).toBeFocused();
     await expectComment(page, 'Alpha', '正在输入');
@@ -275,7 +289,7 @@ test('starts a native subtree drag from a populated comment cell and preserves m
   await page.mouse.move(start.x, start.y + 8, { steps: 4 });
   const band = page.locator('.fs-bottom-drop-band').filter({ has: page.getByText('After Container', { exact: true }) });
   await expect(band).toBeVisible();
-  await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
+  await expect(page.locator('.fs-folder-comment.is-editing')).toHaveCount(0);
   const destination = (await band.boundingBox())!;
   expect(start.x).toBeGreaterThan(destination.x);
   expect(start.x).toBeLessThan(destination.x + destination.width);
@@ -284,7 +298,7 @@ test('starts a native subtree drag from a populated comment cell and preserves m
   await expect(band).toHaveClass(/is-active/);
   await expect(page.locator('.fs-drop-line.is-after')).toHaveCount(1);
   await page.mouse.up();
-  await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
+  await expect(page.locator('.fs-folder-comment.is-editing')).toHaveCount(0);
   await expect.poll(async () => flatten(await saved(page)).find(({ node }) => node.id === sourceBefore.id)?.path).toBe('Project/Source');
   expect(flatten(await saved(page)).find(({ node }) => node.id === sourceBefore.id)!.node).toEqual(sourceBefore);
   expect(await page.evaluate(() => (window as Window & { __commentDragStarts?: boolean[] }).__commentDragStarts)).toEqual([true]);
@@ -292,7 +306,7 @@ test('starts a native subtree drag from a populated comment cell and preserves m
   await expectComment(page, 'Leaf', 'Keep this child note');
   await page.locator('.fs-history button').first().click();
   await expect.poll(() => saved(page)).toEqual(before);
-  await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
+  await expect(page.locator('.fs-folder-comment.is-editing')).toHaveCount(0);
 });
 
 test('localizes new template comments once and never translates saved or user-authored notes on language changes', async ({ page }) => {
@@ -337,47 +351,93 @@ async function geometry(page: Page, name: string) {
 function stable(before: Awaited<ReturnType<typeof geometry>>, after: Awaited<ReturnType<typeof geometry>>) {
   for (const [index, panel] of before.panels.entries()) for (const key of ['x', 'y', 'width', 'height'] as const) expect(after.panels[index][key]).toBeCloseTo(panel[key], 1);
   for (const key of ['glyph', 'name', 'count', 'comment'] as const) for (const axis of ['x', 'y'] as const) expect(after[key][axis], `${key} ${axis}`).toBeCloseTo(before[key][axis], 1);
+  for (const dimension of ['width', 'height'] as const) expect(after.comment[dimension], `comment cell ${dimension}`).toBeCloseTo(before.comment[dimension], 1);
   expect(after.row.height).toBe(34);
 }
-for (const locale of ['en', 'ar']) {
-  test(`keeps mobile ${locale} comment columns, row anchors, counts, and panels stable with a usable editor`, async ({ page }, testInfo) => {
-    await load(page, locale, 360, locale === 'ar' ? 'dark' : 'light');
+for (const { layout, locale, width, theme } of [
+  { layout: 'desktop', locale: 'en', width: 1920, theme: 'light' },
+  { layout: 'mobile', locale: 'en', width: 360, theme: 'light' },
+  { layout: 'mobile', locale: 'ar', width: 360, theme: 'dark' },
+]) {
+  test(`edits comments inside the unchanged cell on ${layout} ${locale} with stationary rows and panels`, async ({ page }, testInfo) => {
+    await load(page, locale, width, theme);
     const long = 'A long comment with literal details // '.repeat(12);
     await importFile(page, `Project // ${long}\n    Documents // ${long}\n        Notes // Reference\n    Empty`);
     await expect(page.locator('.fs-app')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
     await expect(comment(page, 'Documents')).toHaveCSS('text-overflow', 'ellipsis');
     await expect(comment(page, 'Documents')).toHaveCSS('white-space', 'nowrap');
     const before = await geometry(page, 'Documents');
+    const wide = layout === 'desktop';
+    if (wide) expect(before.comment.width).toBeGreaterThanOrEqual(132);
+    else expect(before.comment.width).toBeLessThan(132);
     await select(page, 'Documents');
     stable(before, await geometry(page, 'Documents'));
     await comment(page, 'Documents').click();
+    const cell = comment(page, 'Documents');
+    await expect(cell).toHaveClass(/is-editing/);
+    expect(await cell.evaluate(element => element.tagName)).toBe('DIV');
+    await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
     await expect(commentInput(page)).toBeFocused();
+    await expect(commentInput(page)).toHaveValue(long);
     stable(before, await geometry(page, 'Documents'));
-    const editor = page.locator('.fs-comment-editor');
-    const bounds = (await editor.boundingBox())!, tree = (await page.locator('.fs-tree').boundingBox())!;
-    expect(bounds.x).toBeGreaterThanOrEqual(tree.x);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(tree.x + tree.width);
-    expect((await commentInput(page).boundingBox())!.width).toBeGreaterThanOrEqual(112);
-    for (const button of ['.fs-inline-save', '.fs-inline-cancel']) {
-      const target = (await editor.locator(button).boundingBox())!;
+    const bounds = (await cell.boundingBox())!;
+    const inputBounds = (await commentInput(page).boundingBox())!;
+    expect(inputBounds.x).toBeGreaterThanOrEqual(bounds.x);
+    expect(inputBounds.x + inputBounds.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+    expect(inputBounds.y).toBeGreaterThanOrEqual(bounds.y);
+    expect(inputBounds.y + inputBounds.height).toBeLessThanOrEqual(bounds.y + bounds.height);
+    expect(inputBounds.y + inputBounds.height / 2).toBeCloseTo(bounds.y + bounds.height / 2, 0);
+    for (const selector of ['.fs-inline-save', '.fs-inline-cancel']) {
+      const button = cell.locator(selector);
+      if (!wide) {
+        await expect(button).toBeHidden();
+        continue;
+      }
+      await expect(button).toBeVisible();
+      const target = (await button.boundingBox())!;
       expect(target.x).toBeGreaterThanOrEqual(bounds.x);
       expect(target.x + target.width).toBeLessThanOrEqual(bounds.x + bounds.width);
-      expect(target.width).toBeGreaterThanOrEqual(24);
-      expect(target.height).toBeGreaterThanOrEqual(24);
+      expect(target.y).toBeGreaterThanOrEqual(bounds.y);
+      expect(target.y + target.height).toBeLessThanOrEqual(bounds.y + bounds.height);
+      expect(target.width).toBe(24);
+      expect(target.height).toBe(24);
+      expect(await button.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return hit === element || !!hit && element.contains(hit);
+      })).toBe(true);
     }
-    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`comment-edit-${locale}-mobile.png`) });
+    if (!wide) expect(inputBounds.width).toBeGreaterThanOrEqual(bounds.width - 4);
+    await commentInput(page).press('End');
+    await expect.poll(() => commentInput(page).evaluate(input => (input as HTMLTextAreaElement).selectionStart)).toBe(long.length);
+    await expect.poll(() => commentInput(page).evaluate(input => input.scrollLeft)).toBeGreaterThan(0);
+    expect(await commentInput(page).evaluate(input => input.scrollWidth > input.clientWidth)).toBe(true);
+    stable(before, await geometry(page, 'Documents'));
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`comment-in-cell-${locale}-${layout}.png`) });
+
     await commentInput(page).fill('x'.repeat(501));
     await commentInput(page).press('Enter');
-    await expect(editor.getByRole('alert')).toBeVisible();
+    await expect(commentError(page)).toBeVisible();
+    await expect(commentInput(page)).toHaveAttribute('aria-describedby', (await commentError(page).getAttribute('id'))!);
+    expect(await commentError(page).getAttribute('title')).toBe(await commentError(page).textContent());
     stable(before, await geometry(page, 'Documents'));
+    await expectComment(page, 'Documents', long);
+    await commentInput(page).press('Escape');
+    await expect(commentInput(page)).toHaveCount(0);
+    await expect(commentError(page)).toHaveCount(0);
+    stable(before, await geometry(page, 'Documents'));
+
+    await cell.click();
     await commentInput(page).fill('Changed note — 我的说明');
-    await editor.locator('.fs-inline-save').click();
+    if (wide) await cell.locator('.fs-inline-save').click();
+    else if (locale === 'en') await commentInput(page).press('Enter');
+    else await page.locator('h1').click();
     await expectComment(page, 'Documents', 'Changed note — 我的说明');
     stable(before, await geometry(page, 'Documents'));
     await clearSelection(page);
     stable(before, await geometry(page, 'Documents'));
     await expect(item(page, 'Documents').locator(':scope > .fs-row-count')).toHaveText('1');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`comment-column-${locale}-mobile.png`) });
+    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`comment-column-${locale}-${layout}.png`) });
   });
 }

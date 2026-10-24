@@ -261,7 +261,7 @@
   "Move inside the next sibling folder": "In den nächsten Ordner auf derselben Ebene verschieben",
   "Moved into the next sibling.": "In den nächsten Ordner derselben Ebene verschoben.",
   "This folder has no sibling to move into.": "Es gibt keinen anderen Ordner auf derselben Ebene, in den dieser Ordner verschoben werden kann.",
-  "Add comment": "Kommentar hinzufügen",
+  "Add comment": "Optionaler Kommentar",
   "Edit comment for {name}": "Kommentar für {name} bearbeiten",
   "Folder comment": "Ordnerkommentar",
   "Save comment": "Kommentar speichern",

@@ -104,13 +104,13 @@ for (const scenario of cases) {
       await page.mouse.move(0, 0);
       const before = await geometry(page, name);
       expect(before.gripFirst).toBe(true);
-      expect(before.grip.width).toBe(scenario.width <= 600 ? (depth === 0 ? 0 : 14) : 16);
+      expect(before.grip.width).toBe(depth === 0 ? 0 : scenario.width <= 600 ? 14 : 16);
       expect(before.gripHasIcon).toBe(depth > 0);
       expect(before.draggable).toBe(depth > 0);
       expect(before.count.y).toBeCloseTo(before.row.y, 1);
       expect(before.count.x + before.count.width).toBeCloseTo(before.item.x + before.item.width - 9, 1);
-      expect(before.glyph.x).toBeCloseTo(scenario.width <= 600 ? (depth === 0 ? 25 : 41 + (depth - 1) * 14) : 55 + depth * 22, 1);
-      expect(before.label.x).toBeCloseTo(scenario.width <= 600 ? (depth === 0 ? 51 : 67 + (depth - 1) * 14) : 83 + depth * 22, 1);
+      expect(before.glyph.x).toBeCloseTo(scenario.width <= 600 ? (depth === 0 ? 25 : 41 + (depth - 1) * 14) : (depth === 0 ? 25 : 49 + (depth - 1) * 22), 1);
+      expect(before.label.x).toBeCloseTo(scenario.width <= 600 ? (depth === 0 ? 51 : 67 + (depth - 1) * 14) : (depth === 0 ? 53 : 77 + (depth - 1) * 22), 1);
       if (before.grip.width) expect(before.grip.x + before.grip.width).toBeLessThanOrEqual(before.disclosure!.x);
       expect(before.disclosure!.x + before.disclosure!.width).toBeLessThanOrEqual(before.glyph.x);
       await row(page, name).hover();
@@ -207,7 +207,8 @@ test('starts native row dragging from the leading grip while the root stays fixe
       (window as unknown as DragWindow).__gripDrags.push({ trusted: event.isTrusted, name: target.closest('.fs-tree-row')?.querySelector('.fs-folder-name')?.textContent ?? null });
     }, true);
   });
-  const rootGrip = (await row(page, 'Project').locator('.fs-drag-hint').boundingBox())!;
+  await expect(row(page, 'Project').locator('.fs-drag-hint')).toBeHidden();
+  const rootGrip = (await folder(page, 'Project').locator('.fs-folder-icon').boundingBox())!;
   await page.mouse.move(rootGrip.x + rootGrip.width / 2, rootGrip.y + rootGrip.height / 2);
   await page.mouse.down();
   await page.mouse.move(rootGrip.x + rootGrip.width / 2 + 12, rootGrip.y + rootGrip.height / 2 + 12, { steps: 5 });

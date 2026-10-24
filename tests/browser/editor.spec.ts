@@ -949,7 +949,7 @@ async function beginPointerFolderDrag(page: Page, sourceName: string) {
 async function hoverAfterAtDepth(page: Page, targetName: string, depth: number) {
   const tree = (await page.locator('.fs-tree').boundingBox())!;
   const target = (await folderRow(page, targetName).boundingBox())!;
-  const x = tree.x + 12 + depth * 22 + 5;
+  const x = tree.x + (depth - 1) * 22 + 5;
   const y = target.y + target.height - 2;
   await page.mouse.move(x, y, { steps: 12 });
   // A second pointer movement ensures Chromium dispatches a dragover at the chosen boundary.
@@ -961,7 +961,7 @@ async function hoverTreeWhitespaceAtDepth(page: Page, depth: number, useTail: bo
   const rows = page.locator('.fs-tree-row');
   const last = (await rows.last().boundingBox())!;
   const target = useTail ? (await page.locator('.fs-tree-tail').boundingBox())! : tree;
-  const x = tree.x + 12 + depth * 22 + 5;
+  const x = tree.x + (depth - 1) * 22 + 5;
   const y = useTail ? target.y + target.height / 2 : Math.min(tree.y + tree.height - 12, last.y + last.height + 40);
   expect(y).toBeGreaterThan(last.y + last.height);
   await page.mouse.move(x, y, { steps: 12 });
@@ -1122,7 +1122,7 @@ for (const widthRatio of [0.35, 0.65, 0.9]) {
     await hoverBottomBandVertically(page, x, '03 Final delivery');
     const tree = (await page.locator('.fs-tree').boundingBox())!;
     const line = (await page.locator('.fs-drop-line.is-after').boundingBox())!;
-    expect(line.x - tree.x).toBeCloseTo(12 + 22, 0);
+    expect(line.x - tree.x).toBeCloseTo(0, 0);
     const tail = (await page.locator('.fs-tree-tail').boundingBox())!;
     const band = (await bottomDropBand(page, '03 Final delivery').boundingBox())!;
     expect(tail.height).toBeLessThanOrEqual(9);
@@ -1842,8 +1842,8 @@ for (const [layout, width] of [['desktop', 1440], ['mobile', 360]] as const) {
     const initialLayout = await treeLayout(page);
     for (const row of initialLayout.rows) expect(row.height).toBe(34);
     for (const [depth, name] of names.entries()) {
-      expect(anchors[depth].glyphX).toBeCloseTo(layout === 'mobile' ? (depth === 0 ? 25 : 41 + (depth - 1) * 14) : 55 + depth * 22, 1);
-      expect(anchors[depth].nameX).toBeCloseTo(layout === 'mobile' ? (depth === 0 ? 51 : 67 + (depth - 1) * 14) : 83 + depth * 22, 1);
+      expect(anchors[depth].glyphX).toBeCloseTo(layout === 'mobile' ? (depth === 0 ? 25 : 41 + (depth - 1) * 14) : (depth === 0 ? 25 : 49 + (depth - 1) * 22), 1);
+      expect(anchors[depth].nameX).toBeCloseTo(layout === 'mobile' ? (depth === 0 ? 51 : 67 + (depth - 1) * 14) : (depth === 0 ? 53 : 77 + (depth - 1) * 22), 1);
       await selectFolder(page, name);
       await expect(folderActions(page, name)).toBeVisible();
       await expectFolderAnchor(page, name, anchors[depth]);

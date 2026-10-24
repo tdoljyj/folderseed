@@ -584,8 +584,19 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     try { commit(moveFolder(doc, selected.node.id, parent.id, siblingIndex + delta), 'Folder order updated.'); focusFolder(selected.node.id); }
     catch (error) { notify(errorMessage(error), true); }
   }
+  function startFolderDrag(event: DragEvent<HTMLElement>, node: FolderNode, level: number) {
+    event.stopPropagation();
+    if (!level || inlineRef.current) { event.preventDefault(); return; }
+    dragId.current = node.id; dragGesture.current = true; setDragToolbarId(actionOwnerId); setDraggingId(node.id);
+    dragDescendants.current = new Set(flatten({ version: 1, root: node }).map(row => row.node.id));
+    setSelectedId(node.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id);
+  }
+  function finishFolderDrag(event: DragEvent<HTMLElement>, id: string) {
+    event.stopPropagation(); setDraggingId(null); dragId.current = null; dragDescendants.current.clear(); setDropTarget(null); focusFolder(id);
+  }
   function dragDestination(event: DragEvent<HTMLElement>, target: string, isRoot: boolean, behavior: 'row' | 'tail' | 'band' | 'frame' = 'row') {
-    const row = behavior === 'frame' ? event.currentTarget.querySelector('.fs-tree-row') : null;
+    const row = behavior === 'frame' ? event.currentTarget.querySelector('.fs-tree-row')
+      : event.currentTarget.classList.contains('fs-folder-comment') ? event.currentTarget.closest('.fs-tree-item')?.querySelector(':scope > .fs-folder-frame > .fs-tree-row') : null;
     const bounds = (row ?? event.currentTarget).getBoundingClientRect();
     const placement: DropPlacement = (behavior === 'tail' || behavior === 'band') && !isRoot ? 'after' : dropPlacement(event.clientY - bounds.top, bounds.height, isRoot);
     const tree = treeRef.current;
@@ -673,8 +684,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
         onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(previous => previous?.hoverId === node.id ? null : previous); }}>
       <div className={`fs-tree-row ${hasActions ? 'has-actions' : ''} ${isSelected ? 'is-selected' : ''} ${target ? target.invalid ? 'is-drop-invalid' : target.placement === 'inside' ? 'is-drop-target' : `is-drop-${target.placement}` : ''}`} style={hasActions ? undefined : { paddingLeft: 12 + level * 22 }}
         onClick={event => { if (!(event.target instanceof Element) || !event.target.closest('button, input, select, textarea, .fs-inline-editor')) selectFolder(node.id); }}
-        draggable={level > 0 && !inlineEdit} onDragStart={event => { if (!level) { event.preventDefault(); return; } dragId.current = node.id; dragGesture.current = true; setDragToolbarId(actionOwnerId); setDraggingId(node.id); dragDescendants.current = new Set(flatten({ version: 1, root: node }).map(row => row.node.id)); setSelectedId(node.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id); }}
-        onDragEnd={() => { setDraggingId(null); dragId.current = null; dragDescendants.current.clear(); setDropTarget(null); focusFolder(node.id); }} onDragOver={event => dragOver(event, node.id, level === 0)}
+        draggable={level > 0 && !inlineEdit} onDragStart={event => startFolderDrag(event, node, level)}
+        onDragEnd={event => finishFolderDrag(event, node.id)} onDragOver={event => dragOver(event, node.id, level === 0)}
         onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(previous => previous?.hoverId === node.id ? null : previous); }} onDrop={event => drop(event, node.id, level === 0)}>
         <span className={`fs-drag-hint ${level === 0 || inlineEdit ? 'is-fixed' : ''}`} aria-hidden="true">{level > 0 && !inlineEdit && <Icon name="grip" size={15}/>}</span>
         {node.children.length && !hasActions ? <button type="button" className="fs-disclosure" aria-label={t(isCollapsed ? "Expand {name}" : "Collapse {name}", { name: node.name })} aria-expanded={!isCollapsed} onClick={() => { if (inlineRef.current && !finishInline(false)) return; setCollapsed(previous => { const next = new Set(previous); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; }); }}><Icon name={isCollapsed ? 'chevron' : 'down'} size={13}/></button> : <span className="fs-disclosure-placeholder"/>}
@@ -683,7 +694,8 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
       </div>
       <button type="button" className={`fs-folder-comment ${node.comment ? '' : 'is-empty'}`} data-comment-for={node.id} dir="auto"
         aria-label={t('Edit comment for {name}', { name: node.name })} title={node.comment || t('Add comment')} disabled={!!draggingId || !!inlineEdit && inlineEdit.kind !== 'comment'}
-        onClick={() => beginInline('comment', node.id)} onDragStart={event => event.preventDefault()}
+        onClick={() => { if (!dragGesture.current) beginInline('comment', node.id); }} draggable={level > 0 && !inlineEdit}
+        onDragStart={event => startFolderDrag(event, node, level)} onDragEnd={event => finishFolderDrag(event, node.id)}
         onDragOver={event => dragOver(event, node.id, level === 0)} onDrop={event => drop(event, node.id, level === 0)}>{node.comment || t('Add comment')}</button>
       <span className="fs-row-count">{node.children.length || ''}</span>
       {!isCollapsed && (node.children.length > 0 || addingChild) && <ul>{node.children.map(child => renderFolder(child, level + 1))}{addingChild && renderPlaceholder(level + 1)}</ul>}

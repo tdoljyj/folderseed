@@ -3036,7 +3036,8 @@
 /* Comments occupy a separate, stable column before the trailing child count. */
 .fs-app :is(.fs-tree-item, .fs-inline-placeholder) {
   --fs-comment-start: max(55cqw, calc(192px + var(--fs-action-inset, 0px)));
-  min-width: calc(264px + var(--fs-action-inset, 0px));
+  /* 192 px action/name boundary + 24 px comment target + 36 px trailing count. */
+  min-width: calc(252px + var(--fs-action-inset, 0px));
 }
 .fs-app .fs-folder-frame:not(.has-actions) .fs-folder-select:not(:has(> .fs-inline-editor)) {
   max-width: calc(var(--fs-comment-start) - var(--fs-action-inset, 0px) - 110px);
@@ -3067,7 +3068,10 @@
 .fs-app .fs-folder-comment.is-empty { color: #8b929d; }
 .fs-app .fs-folder-comment:hover:not(:disabled),
 .fs-app .fs-folder-comment:focus-visible { color: #365c8d; background: #eef4fc; }
-.fs-app .fs-folder-comment:disabled { opacity: .55; cursor: default; }
+.fs-app .fs-folder-comment:disabled { opacity: .55; cursor: default; pointer-events: none; }
+/* Naming temporarily borrows its own row's comment column, not its pointer targets. */
+.fs-app .fs-tree-item:has(> .fs-folder-frame .fs-inline-editor) > .fs-folder-comment { visibility: hidden; }
+.fs-app .fs-folder-frame .fs-inline-editor { z-index: 2; }
 .fs-app .fs-comment-editor {
   position: absolute;
   z-index: 14;

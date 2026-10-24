@@ -81,6 +81,19 @@ async function chooseFormat(page: Page, index: number) {
   await page.getByRole('menuitemradio').nth(index).click();
 }
 
+async function nameControlCenters(page: Page) {
+  const targets = await page.locator('.fs-inline-editor').evaluate(editor =>
+    [...editor.querySelectorAll('button')].map(button => {
+      const bounds = button.getBoundingClientRect();
+      const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      return { name: button.getAttribute('aria-label'), x, y, receivesPointer: hit === button || !!hit && button.contains(hit) };
+    }));
+  expect(targets.map(target => target.name)).toEqual(['Save name', 'Cancel editing']);
+  for (const target of targets) expect(target.receivesPointer, `${target.name} is not covered by the disabled comment cell`).toBe(true);
+  return { save: targets[0], cancel: targets[1] };
+}
+
 // All templates together contain 29 folders, including the one-folder blank start.
 test('provides editable comments for every folder in all four starting templates', async ({ page }, testInfo) => {
   await load(page);
@@ -217,14 +230,69 @@ test('round-trips comment, rename, and move edits through all four text editors 
   }
   await select(page, 'Alpha3');
   await action(page, 'rename').click();
+  await page.getByRole('textbox', { name: 'Folder name', exact: true }).fill('Discarded rename');
+  await expect(page.locator('.fs-folder-comment[aria-label="Edit comment for Alpha3"]')).toBeDisabled();
+  const canceled = await nameControlCenters(page);
+  await page.mouse.click(canceled.cancel.x, canceled.cancel.y);
+  await expectComment(page, 'Alpha3', 'Original note');
+  await select(page, 'Alpha3');
+  await action(page, 'rename').click();
   await page.getByRole('textbox', { name: 'Folder name', exact: true }).fill('Renamed');
-  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  const committed = await nameControlCenters(page);
+  await page.mouse.click(committed.save.x, committed.save.y);
   await expectComment(page, 'Renamed', 'Original note');
   await select(page, 'Nested');
   await page.getByRole('button', { name: 'Move', exact: true }).click();
   await page.getByLabel('New parent folder', { exact: true }).selectOption({ label: 'Project/Renamed' });
   await page.getByRole('button', { name: 'Move folder', exact: true }).click();
   await expect.poll(async () => details(await saved(page)).find(node => node.name === 'Nested')).toEqual({ name: 'Nested', path: 'Project/Renamed/Nested', comment: 'Updated in unicode' });
+});
+
+test('starts a native subtree drag from a populated comment cell and preserves metadata through a bottom-band move and Undo', async ({ page }) => {
+  await load(page);
+  await importFile(page, 'Project // Plan\n    Container // Group\n        Source // Move this annotated subtree\n            Leaf // Keep this child note');
+  const before = await saved(page);
+  const sourceBefore = flatten(before).find(({ node }) => node.name === 'Source')!.node;
+  await page.getByRole('button', { name: 'Collapse Source', exact: true }).click();
+  await expect(folder(page, 'Leaf')).toHaveCount(0);
+  const cell = comment(page, 'Source');
+  await cell.scrollIntoViewIfNeeded();
+  const start = await cell.evaluate(button => {
+    const bounds = button.getBoundingClientRect();
+    const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+    return { x, y, receivesPointer: document.elementFromPoint(x, y)?.closest('.fs-folder-comment') === button };
+  });
+  expect(start.receivesPointer).toBe(true);
+  await page.evaluate(() => {
+    const host = window as Window & { __commentDragStarts?: boolean[] };
+    host.__commentDragStarts = [];
+    document.addEventListener('dragstart', event => {
+      if ((event.target as Element).closest('.fs-folder-comment')) host.__commentDragStarts!.push(event.isTrusted);
+    }, true);
+  });
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x, start.y + 8, { steps: 4 });
+  const band = page.locator('.fs-bottom-drop-band').filter({ has: page.getByText('After Container', { exact: true }) });
+  await expect(band).toBeVisible();
+  await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
+  const destination = (await band.boundingBox())!;
+  expect(start.x).toBeGreaterThan(destination.x);
+  expect(start.x).toBeLessThan(destination.x + destination.width);
+  await page.mouse.move(start.x, destination.y + destination.height / 2, { steps: 12 });
+  await page.mouse.move(start.x, destination.y + destination.height / 2 + 1);
+  await expect(band).toHaveClass(/is-active/);
+  await expect(page.locator('.fs-drop-line.is-after')).toHaveCount(1);
+  await page.mouse.up();
+  await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
+  await expect.poll(async () => flatten(await saved(page)).find(({ node }) => node.id === sourceBefore.id)?.path).toBe('Project/Source');
+  expect(flatten(await saved(page)).find(({ node }) => node.id === sourceBefore.id)!.node).toEqual(sourceBefore);
+  expect(await page.evaluate(() => (window as Window & { __commentDragStarts?: boolean[] }).__commentDragStarts)).toEqual([true]);
+  await expectComment(page, 'Source', 'Move this annotated subtree');
+  await expectComment(page, 'Leaf', 'Keep this child note');
+  await page.locator('.fs-history button').first().click();
+  await expect.poll(() => saved(page)).toEqual(before);
+  await expect(page.locator('.fs-comment-editor')).toHaveCount(0);
 });
 
 test('localizes new template comments once and never translates saved or user-authored notes on language changes', async ({ page }) => {

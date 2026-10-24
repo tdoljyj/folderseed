@@ -456,7 +456,13 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
     });
     // Native focus also reveals a newly added row beyond the tree's scroll edge.
     const input = inlineInput.current;
-    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      // A programmatic caret change does not reveal it horizontally in every browser.
+      // Apply this only when opening, never after the user places their own caret.
+      input.scrollLeft = input.value ? (getComputedStyle(input).direction === 'rtl' ? -1 : 1) * input.scrollWidth : 0;
+    }
   }
   function cancelInline() {
     const edit = inlineRef.current;

@@ -234,7 +234,8 @@ for (const width of [320, 390]) {
     await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`mobile-root-children-selected-${width}-dark.png`) });
     await clear(page);
     await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`mobile-root-children-deselected-${width}-dark.png`) });
-    const name = 'Solo root planning', note = 'An existing root note with enough details for horizontal editing.';
+    const name = 'Solo root planning';
+    const note = width === 390 ? 'ملاحظات المشروع ومراجع العمل ومعلومات تفصيلية للتخطيط. '.repeat(5) : 'An existing root note with enough details for horizontal editing.';
     await page.locator('input[type="file"]').setInputFiles({ name: 'solo-root.txt', mimeType: 'text/plain', buffer: Buffer.from(`${name} // ${note}`) });
     await expect(page.locator('.fs-folder-name')).toHaveText([name]);
     const before = await anchor(page, name), layout = await panels(page);
@@ -260,13 +261,14 @@ for (const width of [320, 390]) {
     await input.evaluate(element => { element.scrollLeft = 0; });
     const box = (await input.boundingBox())!;
     await page.touchscreen.tap(box.x + 7, box.y + box.height / 2);
-    const caret = await input.evaluate(element => (element as HTMLInputElement).selectionStart!);
+    const selection = await input.evaluate(element => { const field = element as HTMLInputElement; return { start: field.selectionStart!, end: field.selectionEnd! }; });
     const oldValue = await input.inputValue();
-    expect(caret).toBeLessThan(oldValue.length);
+    expect(selection.start).toBeLessThan(oldValue.length);
+    expect(selection.start === 0 && selection.end === oldValue.length, 'a later tap is not forced to select the full field').toBe(false);
     await input.pressSequentially('Q');
-    await expect(input).toHaveValue(`${oldValue.slice(0, caret)}Q${oldValue.slice(caret)}`);
-    expect(await input.evaluate(element => (element as HTMLInputElement).selectionStart)).toBe(caret + 1);
-    expect(await input.evaluate(element => (element as HTMLInputElement).selectionEnd)).toBe(caret + 1);
+    await expect(input).toHaveValue(`${oldValue.slice(0, selection.start)}Q${oldValue.slice(selection.end)}`);
+    expect(await input.evaluate(element => (element as HTMLInputElement).selectionStart)).toBe(selection.start + 1);
+    expect(await input.evaluate(element => (element as HTMLInputElement).selectionEnd)).toBe(selection.start + 1);
     await input.press('Escape');
     await clear(page);
     stationary(before, await anchor(page, name));
@@ -275,18 +277,24 @@ for (const width of [320, 390]) {
     const field = page.locator('.fs-inline-comment');
     await expect(field).toBeFocused();
     await caretAtEnd(field);
+    await expect(field).toHaveCSS('direction', width === 390 ? 'rtl' : 'ltr');
+    if (width === 390) await expect.poll(() => field.evaluate(element => element.scrollLeft)).toBeLessThan(0);
+    else await expect.poll(() => field.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
     await field.pressSequentially('X');
     await expect(field).toHaveValue(`${note}X`);
     await caretAtEnd(field);
     await field.evaluate(element => { element.scrollLeft = 0; });
     const commentBox = (await field.boundingBox())!;
     await page.touchscreen.tap(commentBox.x + 5, commentBox.y + commentBox.height / 2);
-    const commentCaret = await field.evaluate(element => (element as HTMLTextAreaElement).selectionStart);
-    expect(commentCaret).toBeLessThan(note.length);
+    // Native touch may select a word rather than a collapsed caret. Preserve that user-chosen range.
+    const commentSelection = await field.evaluate(element => { const input = element as HTMLTextAreaElement; return { start: input.selectionStart, end: input.selectionEnd }; });
+    const oldComment = await field.inputValue();
+    expect(commentSelection.start).toBeLessThan(note.length);
+    expect(commentSelection.start === 0 && commentSelection.end === oldComment.length, 'a later tap is not forced to select the full comment').toBe(false);
     await field.pressSequentially('Q');
-    await expect(field).toHaveValue(`${note.slice(0, commentCaret)}Q${note.slice(commentCaret)}X`);
-    expect(await field.evaluate(element => (element as HTMLTextAreaElement).selectionStart)).toBe(commentCaret + 1);
-    expect(await field.evaluate(element => (element as HTMLTextAreaElement).selectionEnd)).toBe(commentCaret + 1);
+    await expect(field).toHaveValue(`${oldComment.slice(0, commentSelection.start)}Q${oldComment.slice(commentSelection.end)}`);
+    expect(await field.evaluate(element => (element as HTMLTextAreaElement).selectionStart)).toBe(commentSelection.start + 1);
+    expect(await field.evaluate(element => (element as HTMLTextAreaElement).selectionEnd)).toBe(commentSelection.start + 1);
     await field.press('Escape');
     await clear(page);
     stationary(before, await anchor(page, name));
@@ -361,7 +369,13 @@ test.describe('compact layout with native pointer dragging', () => {
     }
     expect(lines[0] - lines[1]).toBeCloseTo(14, 1);
     expect(lines[1] - lines[2]).toBeCloseTo(14, 1);
-    await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath('mobile-first-depth-outdent-dark.png') });
+    // An element screenshot can scroll the page during a native drag; capture the viewport instead.
+    await page.screenshot({ path: testInfo.outputPath('mobile-first-depth-outdent-dark.png') });
+    const freshTree = (await page.locator('.fs-tree').boundingBox())!, freshTarget = (await row(page, 'C').boundingBox())!;
+    await page.mouse.move(freshTree.x + 5, freshTarget.y + freshTarget.height - 2);
+    await page.mouse.move(freshTree.x + 6, freshTarget.y + freshTarget.height - 2);
+    await expect(page.locator('.fs-tree-help')).toContainText('Release to insert after A');
+    expect((await page.locator('.fs-drop-line.is-after').boundingBox())!.x - freshTree.x).toBeCloseTo(0, 1);
     await page.mouse.up();
     await expect(page.locator('.fs-selected-path')).toHaveText('Project/Source');
     await expect(page.locator('.fs-folder-name')).toHaveText(['Project', 'A', 'B', 'C', 'Source', 'Leaf']);

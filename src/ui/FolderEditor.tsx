@@ -803,7 +803,7 @@ function FolderEditorContent({ initialDocument, onChange, storageKey = 'folderse
             <div className={`fs-selection-summary ${selected ? '' : 'is-empty'}`}>{selected && <><div className="fs-selected-path" title={selected.path}><Icon name="folder" size={14}/><span>{selected.path}</span></div><button type="button" className="fs-advanced-move" disabled={!parent} onClick={() => openModal({ kind: 'move', id: selected.node.id })}><Icon name="move" size={14}/>{t("Move")}</button></>}</div>
           </div> : <div id="text-editor" role="region" aria-label={t("Text editor")} className="fs-text-area">
             <textarea aria-label={t("Folder structure text")} spellCheck={false} value={visibleTextDraft}
-              onFocus={() => { if (textGenerated) { setTextDraft(visibleTextDraft); setTextLocale(visibleTextLocale); setTextGenerated(false); } }}
+              onFocus={() => { setTextDraft(visibleTextDraft); setTextLocale(visibleTextLocale); setTextGenerated(false); }}
               onChange={event => changeText(event.target.value)}
               onCompositionStart={event => { changeText(event.currentTarget.value); composingRef.current = true; setComposing(true); }}
               onCompositionEnd={event => { composingRef.current = false; setComposing(false); changeText(event.currentTarget.value); }}

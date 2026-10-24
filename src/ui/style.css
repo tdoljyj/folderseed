@@ -3312,3 +3312,7 @@
 .fs-app .fs-preview-row { gap: var(--fs-tree-name-gap, 8px); }
 .fs-app .fs-preview-folder { flex: 0 0 20px; width: 20px; }
 .fs-app .fs-preview-tree.has-comments .fs-preview-label { max-width: calc(var(--fs-preview-comment-start) - var(--fs-preview-row-inset, 0px) - 56px); }
+
+/* A name target follows its visible content, not the entire reserved comment
+   gutter. Native focus/scrolling must not hide the folder behind empty hit area. */
+.fs-app .fs-folder-frame:not(.has-actions) .fs-folder-select:not(:has(> .fs-inline-editor)) { flex: 0 1 auto; width: max-content; min-width: 44px; }

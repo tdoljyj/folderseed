@@ -31,13 +31,15 @@ export function useSharedCommentLayout(document: DirectoryDocument, root: RefObj
     return () => { active = false; observer?.disconnect(); window.removeEventListener('resize', measure); documentOwner(app).fonts?.removeEventListener('loadingdone', measure); };
   }, [root]);
   return useMemo(() => {
-    const depth = Math.max(...flatten(document).map(row => row.depth));
+    const rows = flatten(document);
+    const depth = Math.max(...rows.map(row => row.depth));
+    const hasComments = rows.some(({ node }) => !!node.comment);
     const target = Math.max(Math.min((metrics.width - 26) * .55, 288) + 5, 197 + Math.max(0, depth - 1) * metrics.indent);
     const nameX = metrics.name - (document.root.children.length ? 0 : 24);
     const minimumCommentColumn = Math.max(0, Math.ceil((target - nameX) / metrics.cell));
     const layout = getTextLayout(document, 4, minimumCommentColumn);
     const commentX = nameX + layout.commentColumn * metrics.cell;
-    return { ...layout, minimumCommentColumn, commentX, visualCommentX: metrics.narrow ? target : commentX, nameX, cell: metrics.cell, narrow: metrics.narrow };
+    return { ...layout, minimumCommentColumn, commentX, visualCommentX: metrics.narrow || !hasComments ? target : commentX, nameX, cell: metrics.cell, narrow: metrics.narrow };
   }, [document, metrics]);
 }
 function documentOwner(element: Element) { return element.ownerDocument; }

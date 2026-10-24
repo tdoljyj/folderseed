@@ -470,25 +470,37 @@ for (const { width, theme, locale } of [
     await page.locator('.fs-preview').screenshot({ path: testInfo.outputPath(`aligned-preview-comments-${width}-${theme}.png`) });
     for (const name of ['Project', 'Planning', 'Working', longName]) {
       await clearSelection(page);
-      // The preceding preview screenshot scrolls stacked mobile panels. Center
-      // the target before testing controls that deliberately float above its row.
-      await folder(page, name).evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+      // A preview screenshot scrolls stacked mobile panels, and the demo's root
+      // uses smooth scrolling. Center the actual glyph instantly, not a wide
+      // name button whose scrollIntoView can discard the left action gutter.
+      await folder(page, name).locator('.fs-folder-icon').evaluate(element => element.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' }));
       const before = await geometry(page, name);
       expect(before.comment.x).toBeCloseTo(root.comment.x, 1);
       await expect(folder(page, name)).toHaveAttribute('title', name);
       if (width > 800 && name !== longName) {
         expect(await folder(page, name).locator('.fs-folder-name').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       }
-      await select(page, name);
+      // Selection is already cleared above. Focusing the editor a second time
+      // here would undo the deliberate viewport placement before the click.
+      await folder(page, name).locator('.fs-folder-icon').click();
+      await expect(folder(page, name)).toHaveAttribute('aria-pressed', 'true');
       stable(before, await geometry(page, name));
       const actions = await page.locator('.fs-context-actions button').evaluateAll(elements => elements.filter(element => getComputedStyle(element).visibility === 'visible').map(element => {
         const box = element.getBoundingClientRect(), hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-        return { right: box.right, width: box.width, height: box.height, hit: hit === element || !!hit && element.contains(hit) };
+        return {
+          action: element.getAttribute('data-action'), x: box.x + box.width / 2, y: box.y + box.height / 2,
+          right: box.right, width: box.width, height: box.height,
+          inViewport: box.x + box.width / 2 >= 0 && box.x + box.width / 2 < innerWidth && box.y + box.height / 2 >= 0 && box.y + box.height / 2 < innerHeight,
+          hit: hit === element || !!hit && element.contains(hit), hitTarget: hit ? `${hit.tagName}.${hit.getAttribute('class') ?? ''}` : null,
+        };
       }));
+      await testInfo.attach(`action-centers-${width}-${name === longName ? 'long-name' : name}`, { body: JSON.stringify(actions, null, 2), contentType: 'application/json' });
       const cell = (await comment(page, name).boundingBox())!;
       for (const action of actions) {
         expect(action.width).toBe(24); expect(action.height).toBe(24);
-        expect(action.hit).toBe(true); expect(action.right).toBeLessThanOrEqual(cell.x);
+        expect(action.inViewport, `${name}: ${action.action} center is visible`).toBe(true);
+        expect(action.hit, `${name}: ${action.action} center (${action.x}, ${action.y}) reached ${action.hitTarget}`).toBe(true);
+        expect(action.right).toBeLessThanOrEqual(cell.x);
       }
       if (name === 'Working') {
         expect(actions).toHaveLength(8);

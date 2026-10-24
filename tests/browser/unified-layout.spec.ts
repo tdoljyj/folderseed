@@ -83,3 +83,60 @@ test('does not realign a composing or newly typed raw draft during responsive me
   await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').draft, DRAFT_KEY)).toBe(typed);
   expect(await sourceState(page)).toEqual(pending);
 });
+
+
+for (const width of [1440, 390]) {
+  test(`keeps a commentless tree compact and preserves first-comment cancel/save/undo at ${width}px`, async ({ page }) => {
+    const raw = 'Project\n  Client deliverables — approved photography and campaign artwork';
+    await load(page, raw);
+    await page.setViewportSize({ width, height: 1050 });
+    await page.getByRole('button', { name: 'Visual editor', exact: true }).click();
+    const cell = page.getByRole('button', { name: 'Edit comment for Project', exact: true });
+    const column = () => page.locator('.fs-app').evaluate(element => parseFloat(getComputedStyle(element).getPropertyValue('--fs-shared-comment-x')));
+    const initialColumn = await column();
+    const saved = () => page.evaluate(key => JSON.parse(localStorage.getItem(key)!).document, DRAFT_KEY);
+    const before = await saved();
+    const rows = () => page.locator('.fs-tree').evaluate(tree => [...tree.querySelectorAll('.fs-tree-row')].map(row => {
+      const box = row.getBoundingClientRect(), origin = tree.getBoundingClientRect();
+      return { y: box.y - origin.y + tree.scrollTop, height: box.height };
+    }));
+    const baseline = await rows();
+    expect(await page.locator('.fs-tree').evaluate(tree => tree.scrollWidth <= tree.clientWidth + 1)).toBe(true);
+    await cell.click();
+    const editor = page.locator('.fs-inline-comment');
+    await expect(editor).toBeFocused();
+    await editor.fill('Cancelled first note');
+    expect(await column()).toBeCloseTo(initialColumn, 1);
+    await editor.press('Escape');
+    expect(await saved()).toEqual(before);
+    expect(await column()).toBeCloseTo(initialColumn, 1);
+    await cell.click();
+    await editor.fill('First saved note');
+    await expect(editor).toBeFocused();
+    await editor.press('Enter');
+    await expect.poll(async () => (await saved()).root.comment).toBe('First saved note');
+    expect(await rows()).toEqual(baseline);
+    if (width > 800) expect(await column()).toBeGreaterThan(initialColumn);
+    else expect(await column()).toBeCloseTo(initialColumn, 1);
+    await page.locator('.fs-editor').press('Control+z');
+    await expect.poll(saved).toEqual(before);
+    expect(await rows()).toEqual(baseline);
+    expect(await column()).toBeCloseTo(initialColumn, 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  });
+}
+
+test('freezes a localized clean draft on focus before responsive font changes', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('folderseed:language:v1', 'en'));
+  await page.reload();
+  await page.locator('.fs-format-activate').click();
+  await input(page).focus();
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').generated, DRAFT_KEY)).toBe(false);
+  await page.evaluate(() => localStorage.setItem('folderseed:language:v1', 'zh-CN'));
+  await page.reload();
+  await input(page).focus();
+  await input(page).evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(5, 12));
+  const frozen = await sourceState(page);
+  await resizeAndRetain(page, frozen);
+});

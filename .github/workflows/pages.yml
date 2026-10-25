@@ -29,7 +29,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:all
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - name: Build for the Pages project path
         run: npm run build:pages

@@ -120,11 +120,11 @@ Open `http://127.0.0.1:4173/folderseed/`. The production smoke tests check the b
 ### Browser tests
 
 ```sh
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 ```
 
-On Linux, Playwright may need system dependencies (`npx playwright install --with-deps chromium`). If your environment already provides a compatible Chromium, you can use it instead:
+On Linux, Playwright may need system dependencies (`npx playwright install --with-deps chromium webkit`). If your environment already provides a compatible Chromium, you can use it instead:
 
 ```sh
 PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
@@ -133,6 +133,8 @@ PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 ```sh
 npm run check     # Unit tests, both builds, and browser tests
 ```
+
+The full suite uses Chromium, plus a focused touch-emulated WebKit project for native inline comment caret visibility. WebKit emulation is not a physical iPhone keyboard test. `PLAYWRIGHT_CHROMIUM_PATH` overrides only the Chromium project; the focused project still requires Playwright WebKit.
 
 The test suite covers indentation and round-trips, document validation, immutable folder operations, and export contents. See the tests and the current CI run for the precise verified coverage; the existence of a test is not a guarantee about every browser or archive utility.
 

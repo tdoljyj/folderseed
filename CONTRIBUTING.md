@@ -16,7 +16,7 @@ Before submitting a change:
 ```sh
 npm test
 npm run build:all
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 ```
 

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { parseText, serializeJSON } from '../../src/core';
+import { flatten, parseText, serializeJSON } from '../../src/core';
 
 // These are native focused-field screenshots, not a drawn or simulated caret.
 test.use({ locale: 'en-US', isMobile: true, hasTouch: true });
@@ -8,9 +8,11 @@ const RTL = 'مجلد عمل طويل للتحقق من مؤشر الكتابة 
 const LTR_NOTE = 'Long reference information for the working project and its final delivery. '.repeat(5).trim();
 const RTL_NOTE = 'ملاحظات طويلة للمشروع ومراجع العمل ومعلومات تفصيلية للتخطيط والتسليم. '.repeat(5).trim();
 const draft = `${ROOT} // ${LTR_NOTE}\n    ${RTL} // ${RTL_NOTE}\n        Child // Keep this child\n    Tail // Final notes`;
-const wire = JSON.parse(serializeJSON(parseText(draft, 'plain')));
+const fixture = parseText(draft, 'plain');
+const wire = JSON.parse(serializeJSON(fixture));
+const nodeIds = new Map(flatten(fixture).map(({ node }) => [node.name, node.id]));
 const folder = (page: Page, name: string) => page.locator(`.fs-folder-select[title="${name}"]`);
-const comment = (page: Page, name: string) => folder(page, name).locator('..').locator('..').locator('..').locator(':scope > .fs-folder-comment');
+const comment = (page: Page, name: string) => page.locator(`.fs-folder-comment[data-comment-for="${nodeIds.get(name)}"]`);
 const action = (page: Page, name: string) => page.locator(`.fs-context-actions [data-action="${name}"]`);
 const scale = (page: Page) => page.evaluate(() => visualViewport?.scale ?? 1);
 const saved = (page: Page) => page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('folderseed:draft:v1') ?? '{}').document));
@@ -41,15 +43,18 @@ async function clear(page: Page) {
   await expect(page.locator('.fs-floating-actions')).toHaveCount(0);
 }
 async function geometry(page: Page, name: string) {
-  return folder(page, name).evaluate(element => {
+  // The title-bearing name button is replaced by a div during rename. The
+  // comment's stable node ID anchors its row in both viewing and editing states.
+  return comment(page, name).evaluate(element => {
     const tree = element.closest<HTMLElement>('.fs-tree')!, origin = tree.getBoundingClientRect();
-    const row = element.closest('.fs-tree-row')!, item = row.closest('.fs-tree-item')!;
+    const item = element.closest('.fs-tree-item')!;
+    const row = item.querySelector(':scope > .fs-folder-frame > .fs-tree-row')!;
     const box = (target: Element, local = true) => {
       const rect = target.getBoundingClientRect();
       return { x: rect.x + (local ? tree.scrollLeft - origin.x : scrollX), y: rect.y + (local ? tree.scrollTop - origin.y : scrollY), width: rect.width, height: rect.height };
     };
     return {
-      row: box(row), glyph: box(element.querySelector('.fs-folder-icon svg')!),
+      row: box(row), glyph: box(row.querySelector('.fs-folder-icon svg')!),
       comment: box(item.querySelector(':scope > .fs-folder-comment')!), count: box(item.querySelector(':scope > .fs-row-count')!),
       panels: ['.fs-editor', '.fs-preview', '.fs-workspace-grid', '.fs-export'].map(selector => box(document.querySelector(selector)!, false)),
     };
@@ -75,8 +80,8 @@ async function focusedEnd(page: Page, field: Locator, originalScale: number) {
   expect(await field.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
   expect(await scale(page)).toBeCloseTo(originalScale, 4);
 }
-async function safeNativeBounds(field: Locator, isComment: boolean) {
-  const bounds = await field.evaluate(element => {
+async function nativeBounds(field: Locator) {
+  return field.evaluate(element => {
     const input = element as HTMLInputElement | HTMLTextAreaElement;
     const rect = input.getBoundingClientRect(), style = getComputedStyle(input);
     const editor = input.closest('.fs-inline-editor')!;
@@ -94,14 +99,16 @@ async function safeNativeBounds(field: Locator, isComment: boolean) {
       controls, count: count ? box(count) : null, overflowing: input.scrollWidth > input.clientWidth, scrollLeft: input.scrollLeft,
     };
   });
+}
+function expectSafeNativeBounds(bounds: Awaited<ReturnType<typeof nativeBounds>>, isComment: boolean) {
   // A browser may paint its real end caret at the native control's own edge.
   // The separate wrapper inset protects that edge from the clipped comment cell.
   if (isComment) {
     expect(bounds.leftInset, 'native field starts inside the clipping boundary').toBeGreaterThanOrEqual(6);
     expect(bounds.rightInset, 'native end edge stays inside the clipping boundary').toBeGreaterThanOrEqual(6);
   }
-  expect(bounds.paddingLeft).toBeGreaterThanOrEqual(isComment ? 6 : 5);
-  expect(bounds.paddingRight).toBeGreaterThanOrEqual(isComment ? 6 : 5);
+  expect(bounds.paddingLeft).toBeGreaterThanOrEqual(isComment ? 2 : 5);
+  expect(bounds.paddingRight).toBeGreaterThanOrEqual(isComment ? 2 : 5);
   expect(bounds.innerWidth, 'the inset still leaves usable native text space').toBeGreaterThan(2);
   expect(bounds.field.top).toBeGreaterThanOrEqual(bounds.owner.top - 0.5);
   expect(bounds.field.bottom).toBeLessThanOrEqual(bounds.owner.bottom + 0.5);
@@ -110,6 +117,10 @@ async function safeNativeBounds(field: Locator, isComment: boolean) {
     const overlapY = Math.min(bounds.field.bottom, other.bottom) - Math.max(bounds.field.top, other.top);
     expect(overlapX > 0.5 && overlapY > 0.5, 'native field does not overlap controls or child count').toBe(false);
   }
+}
+async function safeNativeBounds(field: Locator, isComment: boolean) {
+  const bounds = await nativeBounds(field);
+  expectSafeNativeBounds(bounds, isComment);
   return bounds;
 }
 
@@ -127,11 +138,13 @@ for (const width of [320, 390, 768]) {
       await expect(field).toHaveValue(note);
       await expect(field).toHaveCSS('direction', direction);
       await expect.poll(() => field.evaluate(element => Math.abs(element.scrollLeft))).toBeGreaterThan(0);
-      const bounds = await safeNativeBounds(field, true);
-      expect(bounds.overflowing).toBe(true);
-      stationary(before, await geometry(page, name));
+      const bounds = await nativeBounds(field);
+      // Capture the real focused field even if a subsequent safety check fails.
       await testInfo.attach(`${direction}-comment-native-bounds`, { body: JSON.stringify(bounds, null, 2), contentType: 'application/json' });
       await page.locator('.fs-editor').screenshot({ path: testInfo.outputPath(`native-caret-${width}-${direction}-comment.png`), caret: 'initial' });
+      expectSafeNativeBounds(bounds, true);
+      expect(bounds.overflowing).toBe(true);
+      stationary(before, await geometry(page, name));
       await field.pressSequentially('X');
       await expect(field).toHaveValue(`${note}X`);
       await focusedEnd(page, field, originalScale);

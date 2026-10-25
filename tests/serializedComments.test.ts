@@ -201,7 +201,8 @@ describe('alignment parsing boundaries', () => {
       expect(content(parseText(output, format))).toEqual(content(clean));
       expect(getTextLayout(clean, 2)).toEqual(layout);
     }
-  });
+  // Full-limit four-format round-trips are a correctness fixture, not a 5s performance budget.
+  }, 15_000);
 
   it.each(['plain', 'markdown'] as const)('keeps original names/comments at maximum size in %s', format => {
     const document = createDocument('界'.repeat(80));

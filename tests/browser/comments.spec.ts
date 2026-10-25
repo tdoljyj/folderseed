@@ -410,7 +410,13 @@ for (const { layout, locale, width, theme } of [
         return hit === element || !!hit && element.contains(hit);
       })).toBe(true);
     }
-    if (!wide) expect(inputBounds.width).toBeGreaterThanOrEqual(bounds.width - 4);
+    if (!wide) {
+      // Two 1px cell borders plus the wrapper's 6px inset on each side protect
+      // the real native caret without moving or widening the comment cell.
+      expect(inputBounds.width).toBeCloseTo(bounds.width - 14, 1);
+      expect(inputBounds.x - bounds.x).toBeCloseTo(7, 1);
+      expect(bounds.x + bounds.width - inputBounds.x - inputBounds.width).toBeCloseTo(7, 1);
+    }
     await commentInput(page).press('End');
     await expect.poll(() => commentInput(page).evaluate(input => (input as HTMLTextAreaElement).selectionStart)).toBe(long.length);
     await expect.poll(() => commentInput(page).evaluate(input => input.scrollLeft)).toBeGreaterThan(0);

@@ -137,6 +137,11 @@ for (const width of [320, 390, 768]) {
       await focusedEnd(page, field, originalScale);
       await expect(field).toHaveValue(note);
       await expect(field).toHaveCSS('direction', direction);
+      // The focus ring belongs outside the cell, not over its native caret.
+      await expect(field).toHaveCSS('outline-style', 'none');
+      await expect(comment(page, name)).toHaveCSS('outline-style', 'solid');
+      await expect(comment(page, name)).toHaveCSS('outline-width', '2px');
+      await expect(comment(page, name)).toHaveCSS('outline-offset', '1px');
       await expect.poll(() => field.evaluate(element => Math.abs(element.scrollLeft))).toBeGreaterThan(0);
       const bounds = await nativeBounds(field);
       // Capture the real focused field even if a subsequent safety check fails.

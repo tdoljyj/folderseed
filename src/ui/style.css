@@ -3115,7 +3115,10 @@
   font-size: 11px;
   line-height: 28px;
 }
-.fs-app .fs-folder-comment.is-editing .fs-inline-comment:focus-visible { outline-offset: -2px; }
+/* Draw the focus indicator outside the cell, never over the native end caret. */
+.fs-app .fs-folder-comment.is-editing:focus-within { outline: 2px solid #0068d9; outline-offset: 1px; }
+.fs-app[data-theme='dark'] .fs-folder-comment.is-editing:focus-within { outline-color: #9ac7ff; }
+.fs-app .fs-folder-comment.is-editing .fs-inline-comment:focus-visible { outline: none; }
 .fs-app .fs-folder-comment.is-editing .fs-inline-comment::placeholder { color: #6c7480; font-style: italic; opacity: 1; }
 .fs-app .fs-folder-comment.is-editing :is(.fs-inline-save, .fs-inline-cancel) { box-shadow: none; }
 /* Container width excludes the two 1 px borders: 130 content pixels = 132 outside. */
